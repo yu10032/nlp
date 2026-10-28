@@ -6,7 +6,16 @@ from fastapi.responses import JSONResponse
 from sqlalchemy import select
 from sqlalchemy.orm import sessionmaker
 
-from ta_backend.api import courses, coverage, documents, drafts, graph, matching, questions
+from ta_backend.api import (
+    courses,
+    coverage,
+    documents,
+    drafts,
+    graph,
+    matching,
+    questions,
+    teaching,
+)
 from ta_backend.config import Settings
 from ta_backend.db import make_engine
 from ta_backend.models import IngestionJob, Material
@@ -47,6 +56,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         questions.router,
         drafts.router,
         coverage.router,
+        teaching.router,
     ):
         app.include_router(router, prefix="/api/v1")
 

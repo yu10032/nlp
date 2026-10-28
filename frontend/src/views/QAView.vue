@@ -216,6 +216,14 @@ onMounted(async () => {
     health.value = result[1]
     history.value = result[2]
     if (typeof route.query.node === 'string') selectedNodes.value = [route.query.node]
+    if (typeof route.query.question === 'string') {
+      question.value = await api.question(props.courseId, route.query.question)
+      questionText.value = question.value.text
+      selectedNodes.value = question.value.needs_review
+        ? question.value.predictions.map((p) => p.node_id)
+        : question.value.confirmed_node_ids
+      await findEvidence()
+    }
     if (typeof route.query.draft === 'string') await openDraft(route.query.draft)
   } catch (cause) {
     error.value = (cause as Error).message

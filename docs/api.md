@@ -1,4 +1,4 @@
-# 第一阶段接口约定
+# 接口约定
 
 统一前缀 `/api/v1`；实际 schema 见 `/docs` 和 `/openapi.json`。成功响应直接返回对象；失败为 `{"error":{"code":"...","message":"..."}}`。
 ID 为 UUID 或已有演示 ID；时间使用 UTC ISO 8601；所有课程资源均受路径中的 `course_id` 约束。
@@ -41,4 +41,28 @@ ID 为 UUID 或已有演示 ID；时间使用 UTC ISO 8601；所有课程资源�
 - 教学内容状态：`draft/approved/rejected/stale_review`。仅当前 `approved` 且依赖有效时可导出。第一阶段未增加没有操作语义的中间“提交审核”步骤。
 
 当前审核人是本地操作人填写的名称；登录身份与课程成员权限仍待后续接入，不能把课程范围查询当作已完成用户鉴权。
-题库、备课、批量分组与正式模型评测接口尚未实现，不提供返回空成功的占位 API。
+题库、备课与批量提问接口已实现；语义分组与正式模型评测尚未接入。
+
+## 出题与备课
+
+统一路径 `/courses/{c}/teaching/{kind}`，`kind=quiz/lesson`。
+
+| 方法 | 路径后缀 | 行为 |
+| --- | --- | --- |
+| GET / POST | 空 | 最近 100 份列表；创建手工或生成草稿 |
+| GET / PATCH | `/{id}` | 读取完整内容；保存完整表单并提升版本 |
+| POST | `/{id}/review` | 当前版本教师审核，通过前检查内容与依赖 |
+| GET | `/{id}/export` | 仅导出有效审核版本，Markdown 含正文和课程依据 |
+
+创建输入 `title/target_node_ids/body/generate`，目标 1–5 个已确认的具体知识点；更新改用 `expected_version`，不接受生成开关。生成始终建立新草稿，不覆盖当前版本。响应在原草稿字段上增加 `kind/body`，修订快照也保留结构化正文。
+
+- 题组 body：`difficulty=basic/intermediate/advanced`，`items` 为 1–5 题，`missing_info` 为待补充事项。逐题字段：`type=single_choice/short_answer`、`stem/options/answer/explanation/node_ids/citation_ids`。单选四项，答案 A–D；简答的 options 为空。草稿可留白，生成输出与通过审核时检查完整性、答案选项一致性和组内近重复题干。
+- 备课 body：`duration/objectives/key_questions/segments/missing_info`；duration 为 5–240 分钟。逐段字段：`title/minutes/content/activity/example/node_ids/citation_ids/quiz_ids`，最多 12 段。quiz_ids 指向同课程已审核题组；保存时记录 examples 快照。审核、导出时重新确认例题版本仍有效。分段总时长必须等于 duration 才能审核。
+- 教学节点和引用按具体题目/环节聚合后保存，不能通过仅选择生成目标增加覆盖。审核还要求所有目标都已关联到具体内容。
+- 题组编辑或退回会使引用它的已审核备课失效；资料替换使所有受影响的已审核内容失效。原答疑 PATCH 不能改写题组或教案。
+
+## 批量提问
+
+`POST /courses/{c}/questions/batch` 输入 `questions: [{question_text, method?, max_suggestions?}]`，一次 1–50 条，返回问题结果数组，整批一次提交。单条约束与 `/questions/match` 相同；原始预测保留，人工关联仍通过 `/questions/{id}/links` 修改。
+
+前端热点基于 `/questions` 的最近 100 条，已确认关联频次与待确认预测频次分别计算；不把未匹配条目删掉，不将此频次称作全课程累计或语义分组。

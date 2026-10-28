@@ -58,6 +58,8 @@ def test_docx_headings_tables_and_partial_formula_report(api):
     source = Document()
     source.add_heading("注意力机制", level=1)
     source.add_paragraph("根据查询与键的匹配结果，对值向量加权求和。")
+    source.add_paragraph("8.3.1.1 N元语言模型")
+    source.add_paragraph("编号标题使用普通段落样式，也应保存到章节路径中。")
     table = source.add_table(rows=2, cols=2)
     table.cell(0, 0).text = "概念"
     table.cell(0, 1).text = "含义"
@@ -76,6 +78,7 @@ def test_docx_headings_tables_and_partial_formula_report(api):
     chunks = client.get(f"{ROOT}/documents/{material_id}/chunks").json()
     assert any(chunk["section_path"] == ["注意力机制"] for chunk in chunks)
     assert any("Query | 查询" in chunk["text"] for chunk in chunks)
+    assert any(chunk["section_path"][-1] == "8.3.1.1 N元语言模型" for chunk in chunks)
     assert all(chunk["page_from"] is None for chunk in chunks)
     assert client.get(f"{ROOT}/documents/{material_id}/file").content == output.getvalue()
 

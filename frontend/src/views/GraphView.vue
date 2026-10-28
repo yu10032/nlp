@@ -320,6 +320,18 @@ onMounted(async () => {
           <RouterLink class="secondary" :to="{ path: '/qa', query: { node: selected.id } }">
             就此答疑
           </RouterLink>
+          <RouterLink
+            v-if="selected.status === 'confirmed' && selected.kind !== 'chapter'"
+            class="text-button"
+            :to="{ path: '/quiz', query: { node: selected.id } }"
+            >出题</RouterLink
+          >
+          <RouterLink
+            v-if="selected.status === 'confirmed' && selected.kind !== 'chapter'"
+            class="text-button"
+            :to="{ path: '/lessons', query: { node: selected.id } }"
+            >备课</RouterLink
+          >
           <button class="text-button" type="button" aria-label="编辑知识点" @click="editNode()">
             编辑词条
           </button>

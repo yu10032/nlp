@@ -103,5 +103,9 @@ def invalidate_reviews(session: Session, material_id: str, course_id: str):
             TeachingContent.status == "approved",
         )
     ):
+        if content.kind == "quiz":
+            from ta_backend.services.teaching import invalidate_lesson_examples
+
+            invalidate_lesson_examples(session, content.id, content.course_id)
         content.status = "stale_review"
         content.reviewed_version = None

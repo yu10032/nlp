@@ -11,7 +11,7 @@ from docx.table import Table
 from pypdf import PdfReader
 from pypdf.errors import PdfReadError
 
-PARSER_VERSION = "paragraph-v1"
+PARSER_VERSION = "paragraph-v2"
 
 
 class ParseError(ValueError):
@@ -103,8 +103,13 @@ def parse_file(path: Path) -> ParseResult:
             text = block.text.strip()
             style = block.style.name if block.style else ""
             match = re.match(r"(?:Heading|标题)\s*(\d+)", style)
-            if match and text:
-                level = int(match.group(1))
+            numbered = (
+                re.match(r"^(\d+(?:\.\d+){1,5})[.、]?\s*(\S.*)$", text)
+                if len(text) <= 160
+                else None
+            )
+            if (match or numbered) and text:
+                level = int(match.group(1)) if match else numbered.group(1).count(".")
                 sections = sections[: level - 1] + [text]
                 continue
             if text:

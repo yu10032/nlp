@@ -13,11 +13,11 @@ flowchart LR
   Service --> DB[(课程 / 资料 / 图谱 / 教学内容)]
   Service --> Matcher[匹配推理，当前为名称基线]
   Train[离线编码与 MLP 训练] -. 后续接入权重 .-> Matcher
-  Service -. 待实现 .-> LLM[生成 API 适配器]
+  Service --> LLM[生成 API 适配器，配置后调用]
 ```
 
 前端按页面加载功能，API 请求统一在 `api.ts`。初期用 Vue 的 ref/computed 保持局部状态；出现跨页面编辑状态需求后再考虑 Pinia。
-后端路由按课程、资料、图谱、问题、答疑与覆盖划分。当前规模把 schema 放在对应路由中，避免为少量类型增加多层跳转。
+后端路由按课程、资料、图谱、问题、答疑、教学工具与覆盖划分。当前规模把 schema 放在对应路由中，避免为少量类型增加多层跳转。
 资料解析使用 FastAPI BackgroundTasks 并保存任务状态；进程重启后将中断任务明确标为失败。尚未引入外部队列或自动重试。
 
 ## 已落地的数据
@@ -37,7 +37,7 @@ ID 使用可读演示 ID 或 UUID，不使用内容哈希。数据库配置和�
 
 第一阶段已加入 IngestionJob、Question、QuestionPrediction、QuestionLink、ReviewRecord 和 ContentRevision。
 后续随业务加入 CourseMember、QuestionBatch、QuestionGroup 和 ExperimentRun。
-机器预测和人工确认分开保存，避免覆盖历史记录。备课正文采用段落结构，每段保留节点与引用；当前内容模型只提供共同生命周期，尚未完成段落级审核与关联。
+机器预测和人工确认分开保存，避免覆盖历史记录。备课正文已经按环节保存，每段保留节点、引用与所选题组。审核单位是整份教案，关联按环节聚合；不声称已实现逐段独立签核。
 
 ## 覆盖与审核规则
 

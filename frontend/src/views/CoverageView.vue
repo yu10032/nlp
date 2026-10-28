@@ -72,7 +72,18 @@ onMounted(async () => {
             </th>
             <td v-for="kind in kinds" :key="kind.key">
               <span v-if="item[kind.key]" class="tag confirmed">已覆盖</span>
-              <span v-else class="gap-mark">待补充</span>
+              <RouterLink
+                v-else
+                class="gap-mark"
+                :to="{
+                  path:
+                    kind.key === 'quiz' ? '/quiz' : kind.key === 'lesson' ? '/lessons' : '/graph',
+                  query: { node: item.node_id },
+                }"
+                >{{
+                  kind.key === 'quiz' ? '补题 ↗' : kind.key === 'lesson' ? '备课 ↗' : '补充来源 ↗'
+                }}</RouterLink
+              >
             </td>
           </tr>
         </tbody>

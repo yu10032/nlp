@@ -14,6 +14,9 @@ import type {
   NodeWrite,
   QuestionResult,
   RetrievalResult,
+  TeachingKind,
+  TeachingContent,
+  TeachingWrite,
 } from './types'
 
 const base = '/api/v1'
@@ -66,6 +69,11 @@ export const api = {
       `${course(id)}/questions/match`,
       json('POST', { question_text, method }),
     ),
+  importQuestions: (id: string, texts: string[]) =>
+    request<QuestionResult[]>(
+      `${course(id)}/questions/batch`,
+      json('POST', { questions: texts.map((question_text) => ({ question_text })) }),
+    ),
   questions: (id: string) => request<QuestionResult[]>(`${course(id)}/questions`),
   question: (id: string, question: string) =>
     request<QuestionResult>(`${course(id)}/questions/${question}`),
@@ -98,5 +106,31 @@ export const api = {
       `${course(id)}/drafts/${draft}/review`,
       json('POST', { expected_version, result, reviewer }),
     ),
+  teachingList: (id: string, kind: TeachingKind) =>
+    request<DraftSummary[]>(`${course(id)}/teaching/${kind}`),
+  teaching: (id: string, kind: TeachingKind, content: string) =>
+    request<TeachingContent>(`${course(id)}/teaching/${kind}/${content}`),
+  createTeaching: (id: string, kind: TeachingKind, body: TeachingWrite & { generate: boolean }) =>
+    request<TeachingContent>(`${course(id)}/teaching/${kind}`, json('POST', body)),
+  updateTeaching: (
+    id: string,
+    kind: TeachingKind,
+    content: string,
+    body: TeachingWrite & { expected_version: number },
+  ) => request<TeachingContent>(`${course(id)}/teaching/${kind}/${content}`, json('PATCH', body)),
+  reviewTeaching: (
+    id: string,
+    kind: TeachingKind,
+    content: string,
+    expected_version: number,
+    result: string,
+    reviewer: string,
+  ) =>
+    request<TeachingContent>(
+      `${course(id)}/teaching/${kind}/${content}/review`,
+      json('POST', { expected_version, result, reviewer }),
+    ),
+  teachingExportUrl: (id: string, kind: TeachingKind, content: string) =>
+    `${base}${course(id)}/teaching/${kind}/${content}/export`,
   exportUrl: (id: string, draft: string) => `${base}${course(id)}/drafts/${draft}/export`,
 }

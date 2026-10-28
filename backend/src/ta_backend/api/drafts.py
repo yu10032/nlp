@@ -97,6 +97,8 @@ def draft_data(content: TeachingContent, session) -> dict:
     ).all()
     return {
         "id": content.id,
+        "kind": content.kind,
+        "body": content.body,
         "title": content.title,
         "answer": content.body.get("answer", ""),
         "question_text": session.get(Question, content.question_id).text
@@ -131,12 +133,11 @@ def draft_data(content: TeachingContent, session) -> dict:
     }
 
 
-def save_revision(content: TeachingContent, payload: DraftWrite, session, course_id: str):
-    checked_chunks(session, payload.citation_ids, course_id)
-    for node_id in payload.node_ids:
-        scoped_get(session, KnowledgeNode, node_id, course_id)
+def save_revision(
+    content: TeachingContent, payload: DraftWrite, session, course_id: str, body=None
+):
     content.title = payload.title
-    content.body = {**content.body, "answer": payload.answer}
+    content.body = {**(content.body if body is None else body), "answer": payload.answer}
     content.updated_at = utc_now()
     session.add(content)
     session.flush()
@@ -161,6 +162,7 @@ def save_revision(content: TeachingContent, payload: DraftWrite, session, course
                 "node_ids": list(dict.fromkeys(payload.node_ids)),
                 "citation_ids": list(dict.fromkeys(payload.citation_ids)),
                 "generation_info": content.generation_info,
+                "body": content.body,
             },
         )
     )
@@ -230,14 +232,20 @@ async def create_draft(
         payload.citation_ids = generated.citation_ids
         content.body = {"missing_info": generated.missing_info}
         content.generation_info = info
+    checked_chunks(session, payload.citation_ids, course.id)
     return save_revision(content, payload, session, course.id)
 
 
 @router.patch("/drafts/{draft_id}")
 def update_draft(draft_id: str, payload: DraftUpdate, course: CurrentCourse, session: DbSession):
     content = scoped_get(session, TeachingContent, draft_id, course.id)
+    if content.kind != "qa":
+        raise HTTPException(422, "请使用出题或备课编辑接口")
     if content.version != payload.expected_version:
         raise HTTPException(409, "内容已被更新，请重新打开后编辑")
+    checked_chunks(session, payload.citation_ids, course.id)
+    for node_id in payload.node_ids:
+        scoped_get(session, KnowledgeNode, node_id, course.id)
     content.version += 1
     content.status = (
         "stale_review"
@@ -249,8 +257,12 @@ def update_draft(draft_id: str, payload: DraftUpdate, course: CurrentCourse, ses
 
 
 def require_reviewable(content, session, course_id):
+    if content.kind in {"quiz", "lesson"}:
+        from ta_backend.api.teaching import check_teaching_review
+
+        check_teaching_review(content, session, course_id)
     if not content.body.get("answer", "").strip():
-        raise HTTPException(422, "请先填写答疑正文")
+        raise HTTPException(422, "请先填写教学正文")
     citation_ids = list(
         session.scalars(
             select(ContentCitation.chunk_id).where(
@@ -276,6 +288,10 @@ def review_draft(draft_id: str, payload: DraftReview, course: CurrentCourse, ses
         raise HTTPException(409, "正文版本已变化，请重新检查后审核")
     if payload.result == "approved":
         require_reviewable(content, session, course.id)
+    if content.kind == "quiz" and payload.result == "rejected":
+        from ta_backend.services.teaching import invalidate_lesson_examples
+
+        invalidate_lesson_examples(session, content.id, content.course_id)
     content.status = payload.result
     content.reviewed_version = content.version if payload.result == "approved" else None
     session.add(

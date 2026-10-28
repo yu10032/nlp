@@ -59,8 +59,7 @@ def question_data(question: Question, session) -> dict:
     }
 
 
-@router.post("/questions/match", status_code=201)
-def match_question(payload: QuestionMatch, course: CurrentCourse, session: DbSession):
+def store_question(payload: QuestionMatch, course, session):
     nodes = session.scalars(
         select(KnowledgeNode)
         .where(
@@ -100,8 +99,26 @@ def match_question(payload: QuestionMatch, course: CurrentCourse, session: DbSes
         )
         for index, (node_id, score) in enumerate(ranked[: payload.max_suggestions], 1)
     )
-    session.commit()
+    session.flush()
     return question_data(question, session)
+
+
+@router.post("/questions/match", status_code=201)
+def match_question(payload: QuestionMatch, course: CurrentCourse, session: DbSession):
+    result = store_question(payload, course, session)
+    session.commit()
+    return result
+
+
+class QuestionBatch(BaseModel):
+    questions: list[QuestionMatch] = Field(min_length=1, max_length=50)
+
+
+@router.post("/questions/batch", status_code=201)
+def import_questions(payload: QuestionBatch, course: CurrentCourse, session: DbSession):
+    result = [store_question(question, course, session) for question in payload.questions]
+    session.commit()
+    return result
 
 
 @router.get("/questions")

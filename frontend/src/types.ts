@@ -141,3 +141,45 @@ export interface MatchResult {
   method: string
   matches: { node_id: string; name: string; score: number }[]
 }
+
+export type TeachingKind = 'quiz' | 'lesson'
+export interface PartLinks {
+  node_ids: string[]
+  citation_ids: string[]
+}
+export interface QuizItem extends PartLinks {
+  type: 'single_choice' | 'short_answer'
+  stem: string
+  options: string[]
+  answer: string
+  explanation: string
+}
+export interface QuizBody {
+  difficulty: string
+  items: QuizItem[]
+  missing_info: string[]
+}
+export interface LessonSegment extends PartLinks {
+  title: string
+  minutes: number
+  content: string
+  activity: string
+  example: string
+  quiz_ids: string[]
+}
+export interface LessonBody {
+  duration: number
+  objectives: string
+  key_questions: string
+  segments: LessonSegment[]
+  missing_info: string[]
+}
+export interface TeachingContent extends Draft {
+  kind: TeachingKind
+  body: (QuizBody | LessonBody) & { target_node_ids: string[] }
+}
+export interface TeachingWrite {
+  title: string
+  target_node_ids: string[]
+  body: QuizBody | LessonBody
+}
