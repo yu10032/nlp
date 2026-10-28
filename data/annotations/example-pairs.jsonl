@@ -1,0 +1,12 @@
+{"family_id":"toy-f1","question":"分词是什么？","node_id":"demo-tokenization","node_text":"分词：将文本切分为词或子词。","label":1}
+{"family_id":"toy-f1","question":"分词是什么？","node_id":"demo-attention","node_text":"注意力机制：根据匹配分数对值向量加权求和。","label":0}
+{"family_id":"toy-f2","question":"词语怎样用向量表示？","node_id":"demo-embedding","node_text":"词向量：用连续向量表示词语。","label":1}
+{"family_id":"toy-f2","question":"词语怎样用向量表示？","node_id":"demo-tokenization","node_text":"分词：将文本切分为词或子词。","label":0}
+{"family_id":"toy-f3","question":"attention如何加权？","node_id":"demo-attention","node_text":"注意力机制：根据匹配分数对值向量加权求和。","label":1}
+{"family_id":"toy-f3","question":"attention如何加权？","node_id":"demo-tokenization","node_text":"分词：将文本切分为词或子词。","label":0}
+{"family_id":"toy-f4","question":"NLP研究哪些问题？","node_id":"demo-nlp-root","node_text":"自然语言处理：研究语言的计算表示与处理方法。","label":1}
+{"family_id":"toy-f4","question":"NLP研究哪些问题？","node_id":"demo-transformer","node_text":"Transformer：使用注意力机制处理序列的模型架构。","label":0}
+{"family_id":"toy-f5","question":"这门课的考试时间？","node_id":"demo-nlp-root","node_text":"自然语言处理：研究语言的计算表示与处理方法。","label":0}
+{"family_id":"toy-f5","question":"这门课的考试时间？","node_id":"demo-embedding","node_text":"词向量：用连续向量表示词语。","label":0}
+{"family_id":"toy-f6","question":"Transformer使用什么机制聚合上下文？","node_id":"demo-transformer","node_text":"Transformer：使用注意力机制处理序列的模型架构。","label":1}
+{"family_id":"toy-f6","question":"Transformer使用什么机制聚合上下文？","node_id":"demo-attention","node_text":"注意力机制：根据匹配分数对值向量加权求和。","label":1}

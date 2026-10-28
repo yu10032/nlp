@@ -1,0 +1,22 @@
+{
+  "id": "demo-nlp",
+  "title": "自然语言处理 · 示例课程",
+  "description": "仅用于验证项目骨架。内容为手工编写的少量示例，尚未导入正式课程资料。",
+  "material_title": "项目骨架演示资料（手工示例）",
+  "chunks": [
+    {"id": "demo-chunk-1", "locator": "示例第 1 节", "text": "自然语言处理研究计算机如何处理人类语言。分词将文本切分为词或子词，词向量用连续向量表示词语。"},
+    {"id": "demo-chunk-2", "locator": "示例第 2 节", "text": "Transformer 使用注意力机制聚合上下文信息。注意力根据查询与键的匹配结果，对值向量加权求和。"}
+  ],
+  "nodes": [
+    {"id": "demo-nlp-root", "name": "自然语言处理", "aliases": ["NLP"], "description": "研究语言的计算表示与处理方法。", "kind": "concept", "chunk_ids": ["demo-chunk-1"]},
+    {"id": "demo-tokenization", "name": "分词", "aliases": ["tokenization"], "description": "将文本切分为词或子词。", "kind": "task", "chunk_ids": ["demo-chunk-1"]},
+    {"id": "demo-embedding", "name": "词向量", "aliases": ["word embedding"], "description": "用连续向量表示词语。", "kind": "concept", "chunk_ids": ["demo-chunk-1"]},
+    {"id": "demo-transformer", "name": "Transformer", "aliases": [], "description": "使用注意力机制处理序列的模型架构。", "kind": "model", "chunk_ids": ["demo-chunk-2"]},
+    {"id": "demo-attention", "name": "注意力机制", "aliases": ["attention"], "description": "根据匹配分数对值向量加权求和。", "kind": "algorithm", "chunk_ids": ["demo-chunk-2"]}
+  ],
+  "edges": [
+    {"source_id": "demo-nlp-root", "target_id": "demo-tokenization", "relation": "contains", "chunk_id": "demo-chunk-1"},
+    {"source_id": "demo-nlp-root", "target_id": "demo-embedding", "relation": "contains", "chunk_id": "demo-chunk-1"},
+    {"source_id": "demo-transformer", "target_id": "demo-attention", "relation": "uses", "chunk_id": "demo-chunk-2"}
+  ]
+}

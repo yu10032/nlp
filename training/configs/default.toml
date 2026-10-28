@@ -1,0 +1,12 @@
+# 路径相对 work；仅供试跑，正式数据与参数须另外确定。
+encoder = "BAAI/bge-small-zh-v1.5"
+encoder_cache = "artifacts/encoders"
+train_file = "data/annotations/example-split/train.jsonl"
+validation_file = "data/annotations/example-split/validation.jsonl"
+output_dir = "artifacts/matcher/toy-run-001"
+hidden_dim = 32
+dropout = 0.1
+batch_size = 16
+epochs = 10
+learning_rate = 0.001
+seed = 2026

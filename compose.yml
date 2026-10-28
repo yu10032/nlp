@@ -1,0 +1,24 @@
+services:
+  api:
+    build:
+      context: .
+      dockerfile: deploy/backend.Dockerfile
+    environment:
+      TA_DATABASE_URL: sqlite:////app/data/runtime/assistant.db
+      TA_STORAGE_DIR: /app/data/runtime/uploads
+      TA_GENERATION_PROVIDER: ${TA_GENERATION_PROVIDER:-disabled}
+      TA_LLM_BASE_URL: ${TA_LLM_BASE_URL:-}
+      TA_LLM_API_KEY: ${TA_LLM_API_KEY:-}
+      TA_LLM_MODEL: ${TA_LLM_MODEL:-}
+    volumes:
+      - ./data/runtime:/app/data/runtime
+    restart: unless-stopped
+  web:
+    build:
+      context: .
+      dockerfile: deploy/frontend.Dockerfile
+    ports:
+      - "127.0.0.1:8080:80"
+    depends_on:
+      - api
+    restart: unless-stopped
