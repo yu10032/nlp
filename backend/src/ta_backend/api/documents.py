@@ -1,8 +1,10 @@
+import re
 from datetime import datetime
 from pathlib import Path
 
+from docx import Document
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Request, UploadFile
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import func, select
 
@@ -152,3 +154,24 @@ def download_document(document_id: str, course: CurrentCourse, session: DbSessio
     if not material.storage_path:
         raise HTTPException(404, "手工示例没有上传原文件")
     return FileResponse(material.storage_path, filename=material.filename)
+
+
+@router.get("/documents/{document_id}/images/{relation_id}")
+def document_image(document_id: str, relation_id: str, course: CurrentCourse, session: DbSession):
+    material = scoped_get(session, Material, document_id, course.id)
+    if Path(material.storage_path).suffix.lower() != ".docx" or not re.fullmatch(
+        r"rId\d+", relation_id
+    ):
+        raise HTTPException(404, "该资料中没有此插图")
+    document = Document(material.storage_path)
+    image = document.part.related_parts.get(relation_id)
+    if image is None or image.content_type not in {
+        "image/png",
+        "image/jpeg",
+        "image/gif",
+        "image/webp",
+    }:
+        raise HTTPException(404, "此图片格式无法在浏览器预览，请下载原件查看")
+    return Response(
+        image.blob, media_type=image.content_type, headers={"X-Content-Type-Options": "nosniff"}
+    )

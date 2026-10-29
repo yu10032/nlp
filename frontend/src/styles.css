@@ -2016,6 +2016,314 @@ label {
 }
 
 /* 出题与备课：讲义正文与课程旁注 */
+.lesson-progress {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin: 16px 0;
+  padding: 16px 20px;
+  border-left: 3px solid var(--indigo);
+  background: var(--sheet);
+}
+.lesson-timeline {
+  list-style: none;
+  padding: 0;
+  margin: 16px 0 0;
+  font: 14px/1.7 var(--sans);
+}
+.lesson-timeline li {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 9px 0;
+  border-bottom: 1px solid var(--rule);
+}
+.lesson-timeline small {
+  color: var(--ink-3);
+  white-space: nowrap;
+}
+.segment-rewrite {
+  padding: 12px 0;
+  border-block: 1px solid var(--rule);
+}
+.segment-rewrite summary {
+  color: var(--indigo);
+  cursor: pointer;
+  font-size: 13px;
+}
+.segment-rewrite .editor-field {
+  margin-top: 16px;
+}
+.segment-rewrite button {
+  margin-top: 12px;
+}
+.node-evidence-report {
+  padding-bottom: 24px;
+  margin-bottom: 24px;
+  border-bottom: 1px solid var(--rule);
+}
+.node-evidence-report p {
+  margin: 8px 0;
+  font: 13px/1.7 var(--sans);
+}
+.lesson-preview {
+  inset: 0;
+  width: min(960px, calc(100% - 48px));
+  max-width: none;
+  height: calc(100dvh - 48px);
+  max-height: none;
+  padding: 0;
+  border: 1px solid var(--rule-strong);
+  border-radius: 2px;
+  color: var(--ink);
+  background: var(--sheet);
+  overflow: auto;
+}
+.lesson-preview::backdrop {
+  background: rgb(31 28 23 / 48%);
+}
+.preview-toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--sheet-warm);
+  border-bottom: 1px solid var(--rule);
+  padding: 14px 24px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  font: 13px/1.5 var(--sans);
+}
+.preview-toolbar > div {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 16px;
+}
+.preview-print-note {
+  margin: 20px 48px 0;
+}
+.lecture-document {
+  padding: 44px 64px 64px;
+  font: 16px/1.9 var(--serif);
+  overflow-wrap: anywhere;
+}
+.lecture-title {
+  padding-bottom: 28px;
+  margin-bottom: 36px;
+  border-bottom: 1.5px solid var(--ink);
+}
+.lecture-title h1 {
+  margin: 8px 0 16px;
+  font-size: 32px;
+  line-height: 1.45;
+}
+.lecture-kicker {
+  font: 12px/1.5 var(--sans);
+  letter-spacing: 0.06em;
+  color: var(--ink-3);
+}
+.lecture-document h2 {
+  margin: 28px 0 14px;
+  font-size: 22px;
+  line-height: 1.5;
+}
+.lecture-document h3 {
+  margin: 22px 0 10px;
+  font-size: 17px;
+  line-height: 1.6;
+}
+.lecture-section {
+  margin-top: 40px;
+  padding-top: 24px;
+  border-top: 1px solid var(--rule);
+  scroll-margin-top: 90px;
+}
+.lecture-section > h2 {
+  margin-top: 8px;
+}
+.lecture-reference {
+  margin-top: 20px;
+  color: var(--ink-3);
+  font: 12px/1.8 var(--sans);
+}
+.lecture-contents ol {
+  list-style: none;
+  padding: 0;
+}
+.lecture-contents li {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  border-bottom: 1px solid var(--rule);
+  padding: 8px 0;
+}
+.lecture-contents li span {
+  white-space: nowrap;
+  font: 12px/2 var(--sans);
+  color: var(--ink-3);
+}
+.lecture-contents .text-button {
+  text-align: left;
+  font: inherit;
+  padding: 0;
+}
+.lecture-prose {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.lecture-prose > :first-child {
+  margin-top: 0;
+}
+.lecture-prose p {
+  margin: 0 0 14px;
+}
+.lecture-prose pre {
+  padding: 14px;
+  white-space: pre-wrap;
+  background: var(--sheet-warm);
+}
+.lecture-prose code {
+  font-size: 0.88em;
+}
+.lecture-prose table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 18px 0;
+}
+.lecture-prose th,
+.lecture-prose td {
+  padding: 8px;
+  border: 1px solid var(--rule);
+  text-align: left;
+}
+.lecture-prose img {
+  display: block;
+  max-width: 100%;
+  max-height: 500px;
+  object-fit: contain;
+  margin: 16px auto;
+}
+.lecture-equation {
+  overflow-x: auto;
+  padding: 4px 0;
+}
+.lecture-sources {
+  margin-top: 40px;
+  padding-top: 24px;
+  border-top: 1px solid var(--rule-strong);
+  font-size: 13px;
+}
+@media (max-width: 640px) {
+  .lesson-preview {
+    width: 100%;
+    height: 100dvh;
+    border: 0;
+  }
+  .preview-toolbar {
+    padding: 12px 16px;
+  }
+  .preview-toolbar > span {
+    display: none;
+  }
+  .preview-toolbar > div {
+    width: 100%;
+    justify-content: space-between;
+  }
+  .lecture-document {
+    padding: 28px 24px 48px;
+  }
+  .lecture-title h1 {
+    font-size: 26px;
+  }
+  .preview-print-note {
+    margin-inline: 24px;
+  }
+}
+@media print {
+  @page {
+    size: A4;
+    margin: 18mm 20mm;
+  }
+  body:has(.lesson-preview[open]) > :not(.lesson-preview) {
+    display: none !important;
+  }
+  html,
+  body,
+  .lecture-document {
+    background: white !important;
+    color: black !important;
+  }
+  .lesson-preview[open] {
+    position: static;
+    display: block;
+    width: auto;
+    height: auto;
+    max-height: none;
+    overflow: visible;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    background: white;
+  }
+  .lesson-preview::backdrop,
+  .preview-toolbar,
+  .preview-print-note {
+    display: none !important;
+  }
+  .lecture-document {
+    padding: 0;
+    font-size: 11pt;
+    line-height: 1.6;
+    color: black;
+  }
+  .lecture-title h1 {
+    font-size: 22pt;
+  }
+  .lecture-title {
+    border: 0;
+  }
+  .lecture-document a,
+  .lecture-contents .text-button {
+    color: black;
+  }
+  .lecture-document h2,
+  .lecture-document h3,
+  .lecture-kicker {
+    break-after: avoid;
+    color: black;
+  }
+  .lecture-document h2 {
+    font-size: 16pt;
+  }
+  .lecture-document h3 {
+    font-size: 12pt;
+  }
+  .lecture-prose p,
+  .lecture-document li {
+    orphans: 3;
+    widows: 3;
+  }
+  .lecture-equation,
+  .lecture-prose img,
+  .lecture-prose tr {
+    break-inside: avoid;
+  }
+  .lecture-equation {
+    overflow: visible;
+  }
+  .lecture-section {
+    margin-top: 24pt;
+    padding-top: 12pt;
+  }
+  .lecture-reference,
+  .lecture-sources {
+    font-size: 9pt;
+  }
+}
 .teaching-layout {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 320px;

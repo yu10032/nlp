@@ -4,6 +4,7 @@ import { onBeforeRouteLeave, useRoute } from 'vue-router'
 import { api } from '../api'
 import QuizEditor from '../components/QuizEditor.vue'
 import LessonEditor from '../components/LessonEditor.vue'
+import LessonPreview from '../components/LessonPreview.vue'
 import SourceList from '../components/SourceList.vue'
 import SourceReader from '../components/SourceReader.vue'
 import type {
@@ -11,6 +12,7 @@ import type {
   Graph,
   Health,
   LessonBody,
+  LessonSegment,
   QuizBody,
   QuizItem,
   RetrievalEvidence,
@@ -36,15 +38,26 @@ const busy = ref('loading')
 const error = ref('')
 const message = ref('')
 const searched = ref(false)
+const nodeEvidence = ref<{ node_id: string; citation_ids: string[]; has_active_source: boolean }[]>(
+  [],
+)
+const preview = ref(false)
+const stopRequested = ref(false)
+const generationProgress = ref('')
 const reviewer = ref('教师')
 const historyMenu = ref<HTMLDetailsElement>()
 const requestedCount = ref(3)
 const requestedType = ref<QuizItem['type']>('single_choice')
 const quizBody = ref<QuizBody>({ difficulty: 'basic', items: [], missing_info: [] })
 const lessonBody = ref<LessonBody>({
+  format_version: 2,
+  plan_confirmed: false,
   duration: 45,
   objectives: '',
   key_questions: '',
+  preparation: '',
+  homework: '',
+  student_homework: '',
   segments: [],
   missing_info: [],
 })
@@ -93,6 +106,36 @@ const filteredNodes = computed(() => {
 const totalMinutes = computed(() =>
   lessonBody.value.segments.reduce((sum, s) => sum + Number(s.minutes || 0), 0),
 )
+const lessonChars = computed(() =>
+  lessonBody.value.segments.reduce((sum, s) => sum + s.content.replace(/\s/g, '').length, 0),
+)
+function planSnapshot(value: LessonBody, ids: string[]) {
+  return JSON.stringify({
+    target_node_ids: ids,
+    duration: value.duration,
+    objectives: value.objectives,
+    key_questions: value.key_questions,
+    segments: value.segments.map(({ id, title, stage, minutes, node_ids, quiz_ids }) => ({
+      id,
+      title,
+      stage,
+      minutes,
+      node_ids,
+      quiz_ids,
+    })),
+  })
+}
+const planConfirmed = computed(
+  () =>
+    !!draft.value &&
+    lessonBody.value.plan_confirmed &&
+    planSnapshot(lessonBody.value, targets.value) ===
+      planSnapshot(draft.value.body as LessonBody, draft.value.body.target_node_ids),
+)
+const completedSegments = computed(
+  () => lessonBody.value.segments.filter((s) => s.content.trim()).length,
+)
+const pendingSegments = computed(() => lessonBody.value.segments.filter((s) => !s.content.trim()))
 const usedCitationIds = computed(() => [
   ...new Set(
     (isQuiz.value ? quizBody.value.items : lessonBody.value.segments).flatMap(
@@ -135,23 +178,40 @@ function reset() {
   evidence.value = []
   source.value = undefined
   searched.value = false
+  nodeEvidence.value = []
   quizBody.value = { difficulty: 'basic', items: [blankItem()], missing_info: [] }
   lessonBody.value = {
+    format_version: 2,
+    plan_confirmed: false,
     duration: 45,
     objectives: '',
     key_questions: '',
-    segments: [
-      {
-        title: '',
-        minutes: 45,
-        content: '',
-        activity: '',
-        example: '',
-        quiz_ids: [],
-        node_ids: [],
-        citation_ids: [],
-      },
-    ],
+    preparation: '',
+    homework: '',
+    student_homework: '',
+    segments: (
+      [
+        ['opening', '导入与复习', 5],
+        ['instruction', '知识讲解与例题演示', 25],
+        ['practice', '课堂练习与讨论', 10],
+        ['summary', '总结与出口检测', 5],
+      ] as const
+    ).map(([stage, title, minutes]) => ({
+      id: crypto.randomUUID(),
+      stage,
+      title,
+      minutes,
+      content: '',
+      activity: '',
+      example: '',
+      student_activity: '',
+      expected_response: '',
+      check_for_understanding: '',
+      misconceptions: '',
+      quiz_ids: [],
+      node_ids: [],
+      citation_ids: [],
+    })),
     missing_info: [],
   }
   baseline.value = serialized()
@@ -190,7 +250,26 @@ function apply(value: TeachingContent) {
   title.value = value.title
   targets.value = [...value.body.target_node_ids]
   if (isQuiz.value) quizBody.value = structuredClone(value.body as QuizBody)
-  else lessonBody.value = structuredClone(value.body as LessonBody)
+  else {
+    const saved = structuredClone(value.body as LessonBody)
+    lessonBody.value = {
+      ...saved,
+      format_version: saved.format_version ?? 1,
+      plan_confirmed: saved.plan_confirmed ?? false,
+      preparation: saved.preparation ?? '',
+      homework: saved.homework ?? '',
+      student_homework: saved.student_homework ?? '',
+      segments: saved.segments.map((segment) => ({
+        ...segment,
+        id: segment.id ?? crypto.randomUUID(),
+        stage: segment.stage ?? 'instruction',
+        student_activity: segment.student_activity ?? '',
+        expected_response: segment.expected_response ?? '',
+        check_for_understanding: segment.check_for_understanding ?? '',
+        misconceptions: segment.misconceptions ?? '',
+      })),
+    }
+  }
   evidence.value = [
     ...new Map([...evidence.value, ...value.citations].map((e) => [e.id, e])).values(),
   ]
@@ -227,11 +306,16 @@ async function retrieve() {
     evidence.value = [
       ...new Map([...evidence.value, ...result.evidence].map((e) => [e.id, e])).values(),
     ]
+    nodeEvidence.value = result.node_evidence
     searched.value = true
     source.value = undefined
   })
 }
 async function generate() {
+  if (!isQuiz.value) {
+    await generatePendingSegments()
+    return
+  }
   if (
     dirty.value &&
     hasWork.value &&
@@ -239,13 +323,11 @@ async function generate() {
   )
     return
   await run('generation', async () => {
-    const spec = isQuiz.value
-      ? {
-          difficulty: quizBody.value.difficulty,
-          items: Array.from({ length: requestedCount.value }, blankItem),
-          missing_info: [],
-        }
-      : lessonBody.value
+    const spec = {
+      difficulty: quizBody.value.difficulty,
+      items: Array.from({ length: requestedCount.value }, blankItem),
+      missing_info: [],
+    }
     apply(
       await api.createTeaching(props.courseId, props.kind, {
         ...payload(),
@@ -256,6 +338,52 @@ async function generate() {
     await reloadLibrary()
     message.value = '草稿已生成，请核查内容与依据'
     searched.value = true
+  })
+}
+async function confirmPlan() {
+  await run('confirming-plan', async () => {
+    lessonBody.value.format_version = 2
+    for (const segment of lessonBody.value.segments)
+      if (!segment.node_ids.length) segment.node_ids = [...targets.value]
+    const saved = dirty.value || !draft.value ? await persist() : draft.value
+    apply(await api.confirmLessonPlan(props.courseId, saved.id, saved.version))
+    message.value = '课堂安排已确认，可以逐段生成；已有正文会保留。'
+  })
+}
+async function generatePendingSegments() {
+  stopRequested.value = false
+  await run('lesson-generation', async () => {
+    let saved = dirty.value || !draft.value ? await persist() : draft.value
+    if (!(saved.body as LessonBody).plan_confirmed) throw new Error('请先确认课堂安排')
+    const pending = (saved.body as LessonBody).segments.filter((s) => !s.content.trim())
+    for (let index = 0; index < pending.length; index++) {
+      if (stopRequested.value) break
+      const segment = pending[index]!
+      generationProgress.value = `正在生成 ${index + 1} / ${pending.length}：${segment.title}`
+      saved = await api.generateLessonSegment(props.courseId, saved.id, segment.id, saved.version)
+      apply(saved)
+    }
+    generationProgress.value = ''
+    await reloadLibrary()
+    message.value = stopRequested.value
+      ? '已停止后续生成，完成的环节已保存。'
+      : '环节已逐段保存，请核查正文、活动与依据。'
+  })
+}
+async function rewriteSegment(segment: LessonSegment, instruction: string) {
+  await run(`segment:${segment.id}`, async () => {
+    const saved = dirty.value || !draft.value ? await persist() : draft.value
+    apply(
+      await api.generateLessonSegment(
+        props.courseId,
+        saved.id,
+        segment.id,
+        saved.version,
+        instruction,
+      ),
+    )
+    await reloadLibrary()
+    message.value = `“${segment.title}”已单独保存为新版本，其他环节保留。`
   })
 }
 async function open(id: string) {
@@ -309,7 +437,7 @@ onMounted(async () => {
 <template>
   <div class="page-heading">
     <div class="heading-with-count">
-      <h1>{{ isQuiz ? '辅助出题' : '备课提纲' }}</h1>
+      <h1>{{ isQuiz ? '辅助出题' : '课堂讲义' }}</h1>
       <span v-if="draft" class="page-meta"
         >{{ states[draft.status] }} · 第 {{ draft.version }} 版</span
       >
@@ -339,6 +467,15 @@ onMounted(async () => {
   <p v-if="error" class="error" role="alert">{{ error }}</p>
   <p v-if="message" class="success-message" role="status">{{ message }}</p>
   <p v-if="busy === 'loading'" class="loading-block" role="status">正在打开课程工作台…</p>
+  <div v-if="busy === 'lesson-generation'" class="lesson-progress" role="status">
+    <span
+      >{{ generationProgress }} · 已保存 {{ completedSegments }} /
+      {{ lessonBody.segments.length }} 段</span
+    >
+    <button class="secondary" type="button" :disabled="stopRequested" @click="stopRequested = true">
+      {{ stopRequested ? '当前环节完成后停止' : '停止后续生成' }}
+    </button>
+  </div>
   <div v-else class="teaching-layout">
     <article class="teaching-main sheet">
       <fieldset :disabled="!!busy" class="teaching-fields">
@@ -415,7 +552,16 @@ onMounted(async () => {
             >
           </div>
           <template v-else
-            ><div class="lesson-goals">
+            ><p class="section-hint">
+              按整节课准备可直接讲授的正文、例题、师生互动、练习答案和反馈，活动用时计入课时。
+            </p>
+            <p v-if="lessonBody.format_version === 1" class="section-hint">
+              当前为旧版提纲。可继续编辑，或按完整讲义要求补充后审核。
+              <button class="text-button" type="button" @click="lessonBody.format_version = 2">
+                补充为完整讲义
+              </button>
+            </p>
+            <div class="lesson-goals">
               <label class="editor-field"
                 >教学目标<textarea
                   v-model="lessonBody.objectives"
@@ -431,6 +577,15 @@ onMounted(async () => {
                 ></textarea>
               </label>
             </div>
+            <label class="editor-field">
+              课前准备与先备知识
+              <textarea
+                v-model="lessonBody.preparation"
+                rows="3"
+                maxlength="4000"
+                placeholder="学生需掌握什么；教师与学生分别准备哪些材料或工具？"
+              ></textarea>
+            </label>
             <div class="duration-setting">
               <label
                 >课堂时长
@@ -439,11 +594,23 @@ onMounted(async () => {
               ><span :class="totalMinutes === lessonBody.duration ? 'muted' : 'time-mismatch'"
                 >已安排 {{ totalMinutes }} / {{ lessonBody.duration }} 分钟</span
               >
-            </div></template
+            </div>
+            <p v-if="lessonBody.format_version === 2" class="section-hint">
+              讲解正文 {{ lessonChars }} 字，按当前课时至少需 {{ lessonBody.duration * 60 }} 字。
+              篇幅用于避免内容过于简略，仍需核对知识覆盖、活动和答案是否完整。
+            </p></template
           >
           <div class="teaching-start">
             <button class="secondary" type="button" :disabled="!targets.length" @click="retrieve">
               {{ busy === 'retrieval' ? '查找中…' : '查找课程依据' }}</button
+            ><button
+              v-if="!isQuiz"
+              class="secondary"
+              type="button"
+              :disabled="!title.trim() || !targets.length || !lessonBody.objectives.trim()"
+              @click="confirmPlan"
+            >
+              {{ planConfirmed ? '安排已确认' : '确认课堂安排' }}</button
             ><button
               class="primary"
               type="button"
@@ -452,14 +619,38 @@ onMounted(async () => {
                 !targets.length ||
                 !title.trim() ||
                 (!isQuiz && !lessonBody.objectives.trim()) ||
+                (!isQuiz && (!planConfirmed || !pendingSegments.length)) ||
                 (isQuiz &&
                   (!Number.isInteger(requestedCount) || requestedCount < 1 || requestedCount > 5))
               "
               @click="generate"
             >
-              {{ busy === 'generation' ? '生成中…' : isQuiz ? '生成题目' : '生成课时提纲' }}
+              {{
+                busy === 'generation'
+                  ? '生成中…'
+                  : isQuiz
+                    ? '生成题目'
+                    : `生成空白环节（${pendingSegments.length}）`
+              }}
             </button>
           </div>
+          <div v-if="!isQuiz" class="lesson-plan-summary">
+            <p class="section-hint">
+              先核对下方环节的标题、类型、用时与知识点，再确认安排。未单独关联的环节在确认时使用本课全部目标知识点。生成只填写空白正文；失败后可继续。
+            </p>
+            <ol class="lesson-timeline">
+              <li v-for="segment in lessonBody.segments" :key="segment.id">
+                <span>{{ segment.title || '未命名环节' }}</span
+                ><small
+                  >{{ segment.minutes }} 分钟 ·
+                  {{ segment.content.trim() ? '已有正文' : '待编写' }}</small
+                >
+              </li>
+            </ol>
+          </div>
+          <p v-if="!isQuiz && busy === 'generation'" class="section-hint" role="status">
+            正在编写整节课的讲解、例题和互动，可能需要几分钟，请等待生成完成。
+          </p>
           <p v-if="!health?.generation.available" class="section-hint">
             生成服务未配置，可直接编写、保存和审核。
           </p>
@@ -477,8 +668,31 @@ onMounted(async () => {
           :nodes="selectedNodes"
           :evidence="evidence"
           :quizzes="quizzes"
+          :can-generate="planConfirmed && !!health?.generation.available"
           @preview="source = $event"
+          @generate="rewriteSegment"
         />
+        <label v-if="!isQuiz" class="editor-field missing-info">
+          课后巩固与参考要点
+          <textarea
+            v-model="lessonBody.homework"
+            rows="5"
+            maxlength="5000"
+            placeholder="写出巩固题、具体要求和参考解答要点，作为教学建议。"
+          ></textarea>
+        </label>
+        <label v-if="!isQuiz" class="editor-field missing-info">
+          学生版课后任务（不含答案）
+          <textarea
+            v-model="lessonBody.student_homework"
+            rows="3"
+            maxlength="5000"
+            placeholder="仅写题目、要求和提交物；教师参考答案写在上方课后巩固中。"
+          ></textarea>
+        </label>
+        <p v-if="!isQuiz" class="section-hint">
+          学生版隐藏教师提示与独立答案字段，保留讲解正文中的示范推导，请在预览里核对发放内容。
+        </p>
         <label class="editor-field missing-info"
           >待补充事项<textarea
             :value="body.missing_info.join('\n')"
@@ -492,6 +706,9 @@ onMounted(async () => {
           ></textarea>
         </label>
         <div class="teaching-save">
+          <button v-if="!isQuiz" class="secondary" type="button" @click="preview = true">
+            阅读预览
+          </button>
           <span class="muted">{{ dirty ? '有未保存修改' : draft ? '已保存' : '尚未保存' }}</span
           ><button
             class="secondary"
@@ -523,6 +740,13 @@ onMounted(async () => {
               download
               >导出 Markdown</a
             >
+            <a
+              v-if="!isQuiz && draft?.status === 'approved' && !dirty"
+              class="secondary"
+              :href="api.lessonWordUrl(courseId, draft.id)"
+              download
+              >导出 Word</a
+            >
           </div>
         </div>
       </fieldset>
@@ -542,6 +766,22 @@ onMounted(async () => {
       </details>
     </article>
     <aside class="teaching-evidence">
+      <div v-if="!isQuiz && nodeEvidence.length" class="node-evidence-report">
+        <h3>目标依据检查</h3>
+        <p
+          v-for="item in nodeEvidence"
+          :key="item.node_id"
+          :class="item.has_active_source ? 'muted' : 'error'"
+        >
+          {{ allNodes.find((n) => n.id === item.node_id)?.name }}：{{
+            !item.has_active_source
+              ? '缺少有效原文，请补充资料'
+              : item.citation_ids.length
+                ? `已选 ${item.citation_ids.length} 段直接依据`
+                : '有原文，当前检索额度未选入'
+          }}
+        </p>
+      </div>
       <SourceReader
         v-if="source"
         :key="source.id"
@@ -573,4 +813,16 @@ onMounted(async () => {
       >
     </aside>
   </div>
+  <LessonPreview
+    v-if="preview && !isQuiz"
+    :title="title"
+    :body="lessonBody"
+    :nodes="selectedNodes"
+    :evidence="evidence.filter((e) => usedCitationIds.includes(e.id))"
+    :course-id="courseId"
+    :approved="draft?.status === 'approved' && !dirty"
+    :content-id="draft?.id"
+    :version="draft?.version"
+    @close="preview = false"
+  />
 </template>

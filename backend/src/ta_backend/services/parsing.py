@@ -11,7 +11,9 @@ from docx.table import Table
 from pypdf import PdfReader
 from pypdf.errors import PdfReadError
 
-PARSER_VERSION = "paragraph-v2"
+from ta_backend.services.word_content import paragraph_content
+
+PARSER_VERSION = "paragraph-v3"
 
 
 class ParseError(ValueError):
@@ -97,10 +99,18 @@ def parse_file(path: Path) -> ParseResult:
         for index, block in enumerate(document.iter_inner_content(), 1):
             locator = f"段落 {index}"
             if isinstance(block, Table):
-                rows = [" | ".join(cell.text.strip() for cell in row.cells) for row in block.rows]
+                rows = [
+                    " | ".join(
+                        "\n".join(
+                            paragraph_content(p, warnings, f"表格 {index}") for p in cell.paragraphs
+                        )
+                        for cell in row.cells
+                    )
+                    for row in block.rows
+                ]
                 append("\n".join(rows), f"表格 {index}", sections)
                 continue
-            text = block.text.strip()
+            text = paragraph_content(block, warnings, locator)
             style = block.style.name if block.style else ""
             match = re.match(r"(?:Heading|标题)\s*(\d+)", style)
             numbered = (
@@ -115,10 +125,9 @@ def parse_file(path: Path) -> ParseResult:
             if text:
                 append(text, locator, sections)
         if document.inline_shapes:
-            warnings.append(f"含 {len(document.inline_shapes)} 张图片，未提取图中内容")
-        xml = document.element.xml
-        if "<m:oMath" in xml:
-            warnings.append("含 Word 公式，公式内容需人工核查")
+            warnings.append(
+                f"保留 {len(document.inline_shapes)} 张原文插图引用，未识别图中内容，请人工核查"
+            )
     elif path.suffix.lower() == ".pdf":
         try:
             reader = PdfReader(path)

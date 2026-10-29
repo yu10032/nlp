@@ -2,6 +2,7 @@
 import { nextTick, onMounted, ref } from 'vue'
 import { api } from '../api'
 import AppIcon from './AppIcon.vue'
+import LectureProse from './LectureProse.vue'
 import type { DocumentChunk, RetrievalEvidence } from '../types'
 
 const props = defineProps<{ courseId: string; source: RetrievalEvidence }>()
@@ -45,10 +46,7 @@ onMounted(async () => {
         :class="{ highlighted: chunk.id === source.id }"
       >
         <p class="source-locator">{{ chunk.section_path.join(' / ') || chunk.locator }}</p>
-        <p class="chunk-prose">
-          <mark v-if="chunk.id === source.id">{{ chunk.text }}</mark>
-          <template v-else>{{ chunk.text }}</template>
-        </p>
+        <LectureProse :text="chunk.text" :course-id="courseId" :material-id="source.material_id" />
         <small v-if="chunk.section_path.length">{{ chunk.locator }}</small>
       </article>
     </div>

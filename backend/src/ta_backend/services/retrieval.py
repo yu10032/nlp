@@ -55,6 +55,14 @@ def retrieve(
     selected = {
         chunk.id: (score, "retrieval") for (chunk, _), score in zip(rows, scores) if score > 0
     }
+    direct_sources: dict[str, set[str]] = {node_id: set() for node_id in node_ids}
+    for node_id, chunk_id in session.execute(
+        select(NodeEvidence.node_id, NodeEvidence.chunk_id).where(
+            NodeEvidence.course_id == course_id,
+            NodeEvidence.node_id.in_(node_ids),
+        )
+    ):
+        direct_sources[node_id].add(chunk_id)
     if mode == "graph_augmented" and node_ids:
         confirmed = set(
             session.scalars(
@@ -110,7 +118,18 @@ def retrieve(
         (row for row in rows if row[0].id in selected),
         key=lambda row: selected[row[0].id][0],
         reverse=True,
-    )[:budget]
+    )
+    if mode == "graph_augmented":
+        # 先为每个目标分配一份直接依据，再按相关性填满剩余额度。
+        balanced = []
+        chosen = set()
+        for node_id in node_ids:
+            candidate = next((row for row in ranked if row[0].id in direct_sources[node_id]), None)
+            if candidate and candidate[0].id not in chosen:
+                balanced.append(candidate)
+                chosen.add(candidate[0].id)
+        ranked = balanced + [row for row in ranked if row[0].id not in chosen]
+    ranked = ranked[:budget]
     evidence = [
         {
             "id": chunk.id,
@@ -130,4 +149,14 @@ def retrieve(
         "mode": mode,
         "evidence": evidence,
         "missing_evidence": not evidence,
+        "node_evidence": [
+            {
+                "node_id": node_id,
+                "citation_ids": [
+                    item["id"] for item in evidence if item["id"] in direct_sources[node_id]
+                ],
+                "has_active_source": any(chunk.id in direct_sources[node_id] for chunk, _ in rows),
+            }
+            for node_id in node_ids
+        ],
     }

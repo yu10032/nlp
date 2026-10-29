@@ -20,7 +20,7 @@ export const sections = [
   },
   {
     path: '/lessons',
-    label: '备课提纲',
+    label: '课堂讲义',
     shortLabel: '备课',
     group: 1,
     icon: 'lessons',

@@ -54,6 +54,8 @@ export const api = {
   chunks: (id: string, document: string) =>
     request<DocumentChunk[]>(`${course(id)}/documents/${document}/chunks`),
   fileUrl: (id: string, document: string) => `${base}${course(id)}/documents/${document}/file`,
+  documentImageUrl: (id: string, document: string, relation: string) =>
+    `${base}${course(id)}/documents/${document}/images/${relation}`,
   upload: (id: string, file: File, replaces?: string) => {
     const body = new FormData()
     body.append('file', file)
@@ -108,6 +110,22 @@ export const api = {
     ),
   teachingList: (id: string, kind: TeachingKind) =>
     request<DraftSummary[]>(`${course(id)}/teaching/${kind}`),
+  confirmLessonPlan: (id: string, content: string, expected_version: number) =>
+    request<TeachingContent>(
+      `${course(id)}/teaching/lesson/${content}/confirm-plan`,
+      json('POST', { expected_version }),
+    ),
+  generateLessonSegment: (
+    id: string,
+    content: string,
+    segment: string,
+    expected_version: number,
+    rewrite_instruction = '',
+  ) =>
+    request<TeachingContent>(
+      `${course(id)}/teaching/lesson/${content}/segments/${segment}/generate`,
+      json('POST', { expected_version, rewrite_instruction }),
+    ),
   teaching: (id: string, kind: TeachingKind, content: string) =>
     request<TeachingContent>(`${course(id)}/teaching/${kind}/${content}`),
   createTeaching: (id: string, kind: TeachingKind, body: TeachingWrite & { generate: boolean }) =>
@@ -132,5 +150,16 @@ export const api = {
     ),
   teachingExportUrl: (id: string, kind: TeachingKind, content: string) =>
     `${base}${course(id)}/teaching/${kind}/${content}/export`,
+  lessonWordUrl: (id: string, content: string, audience: 'teacher' | 'student' = 'teacher') =>
+    `${base}${course(id)}/teaching/lesson/${content}/word?audience=${audience}`,
+  validateLessonPrint: (
+    id: string,
+    content: string,
+    version: number,
+    audience: 'teacher' | 'student' = 'teacher',
+  ) =>
+    request<{ version: number }>(
+      `${course(id)}/teaching/lesson/${content}/print?expected_version=${version}&audience=${audience}`,
+    ),
   exportUrl: (id: string, draft: string) => `${base}${course(id)}/drafts/${draft}/export`,
 }

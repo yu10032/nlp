@@ -78,6 +78,7 @@ export interface RetrievalResult {
   mode: string
   evidence: RetrievalEvidence[]
   missing_evidence: boolean
+  node_evidence: { node_id: string; citation_ids: string[]; has_active_source: boolean }[]
 }
 export interface QuestionResult {
   id: string
@@ -160,17 +161,32 @@ export interface QuizBody {
   missing_info: string[]
 }
 export interface LessonSegment extends PartLinks {
+  id: string
+  stage: 'opening' | 'instruction' | 'practice' | 'summary'
   title: string
   minutes: number
   content: string
   activity: string
   example: string
+  student_activity: string
+  expected_response: string
+  check_for_understanding: string
+  misconceptions: string
   quiz_ids: string[]
 }
 export interface LessonBody {
+  format_version: 1 | 2
+  plan_confirmed: boolean
+  examples?: Record<
+    string,
+    { title: string; version: number; answer: string; student_content?: string }
+  >
   duration: number
   objectives: string
   key_questions: string
+  preparation: string
+  homework: string
+  student_homework: string
   segments: LessonSegment[]
   missing_info: string[]
 }

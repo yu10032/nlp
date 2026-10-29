@@ -55,6 +55,118 @@ def lesson_payload(quiz_id=None):
     }
 
 
+def full_lesson_payload():
+    payload = lesson_payload()
+    body = payload["body"]
+    body.update(
+        format_version=2,
+        preparation="复习向量加权和；教师准备三组权重卡片和投影，学生准备纸笔。",
+        homework="给出另一组归一化权重，计算加权输出并解释权重变化；参考要点：乘权重后求和。",
+    )
+    # 手工编写的离线结构样例，只验证存储与规则，不代表模型生成质量。
+    explanation = (
+        "注意力机制依据查询与键的匹配程度为值向量分配权重，再把值向量加权求和。"
+        "先让学生标出查询、键和值的角色，再逐项写出权重与值的乘积。"
+        "使用两个标量值2和6作简化演示：权重分别为0.25和0.75时，"
+        "输出为0.25×2+0.75×6=5。权重若都为0.5，输出为4。"
+        "对比两种结果，说明较大的权重意味着对应信息对汇总结果的影响更大。"
+        "这里的权重仅用于教学演算，不声称是某个真实模型的运行结果。"
+    )
+    body["segments"] = []
+    for stage, title, minutes in [
+        ("opening", "情境导入与复习", 5),
+        ("instruction", "加权汇总的原理与演示", 22),
+        ("practice", "独立计算与同伴讨论", 13),
+        ("summary", "课堂总结与出口检测", 5),
+    ]:
+        body["segments"].append(
+            {
+                **deepcopy(lesson_payload()["body"]["segments"][0]),
+                "stage": stage,
+                "title": title,
+                "minutes": minutes,
+                "content": explanation * 5,
+                "activity": (
+                    "教师先提出权重变化会怎样影响输出的问题，留一分钟思考，再邀请两人展示计算。"
+                ),
+                "student_activity": (
+                    "先独立写出计算步骤，再与同桌比较权重变化前后的结果，说明理由。"
+                ),
+                "expected_response": (
+                    "0.25×2+0.75×6=5；等权重时为4。较大权重增强相应值对输出的影响。"
+                ),
+                "check_for_understanding": (
+                    "检查是否逐项乘权重后求和；若直接相加，回到两项乘积逐步重算。"
+                ),
+                "misconceptions": (
+                    "容易把最高权重理解为只保留一项；用两项非零贡献说明仍为加权汇总。"
+                ),
+                "example": (
+                    "题目：值为2、6，权重为0.25、0.75。步骤：分别计算0.5、4.5后相加，结果为5。"
+                ),
+            }
+        )
+    return payload
+
+
+def test_full_lesson_roundtrip_review_and_export(api):
+    client, _ = api
+    payload = full_lesson_payload()
+    lesson = create(client, "lesson", payload)
+    assert lesson["body"]["format_version"] == 2
+    for expected, actual in zip(payload["body"]["segments"], lesson["body"]["segments"]):
+        assert actual["student_activity"] == expected["student_activity"]
+        assert actual["content"] == expected["content"]
+    assert review(client, "lesson", lesson).status_code == 200
+    exported = client.get(f"{ROOT}/teaching/lesson/{lesson['id']}/export")
+    for text in ["课前准备", "学生任务", "预期回答", "检查与反馈", "易错点", "课后巩固", "0.25×2"]:
+        assert text in exported.text
+    changed = deepcopy(payload)
+    changed["body"]["segments"][1]["expected_response"] += "注意各项贡献。"
+    updated = client.patch(
+        f"{ROOT}/teaching/lesson/{lesson['id']}",
+        json={**changed, "expected_version": 1},
+    )
+    assert updated.status_code == 200
+    assert updated.json()["status"] == "stale_review"
+    assert updated.json()["body"]["segments"][1]["expected_response"].endswith("注意各项贡献。")
+    assert len(updated.json()["revisions"]) == 2
+
+
+@pytest.mark.parametrize(
+    "change, message",
+    [
+        ("short", "展开"),
+        ("interaction", "学生任务"),
+        ("practice", "练习"),
+        ("example", "例题"),
+        ("homework", "课后"),
+    ],
+)
+def test_full_lesson_cannot_be_approved_with_only_outline_or_missing_activities(
+    api, change, message
+):
+    client, _ = api
+    payload = full_lesson_payload()
+    body = payload["body"]
+    if change == "short":
+        for segment in body["segments"]:
+            segment["content"] = "介绍原理并展开讨论。"
+    elif change == "interaction":
+        body["segments"][1]["student_activity"] = ""
+    elif change == "practice":
+        body["segments"][2]["stage"] = "instruction"
+    elif change == "example":
+        for segment in body["segments"]:
+            segment["example"] = ""
+    else:
+        body["homework"] = ""
+    lesson = create(client, "lesson", payload)
+    response = review(client, "lesson", lesson)
+    assert response.status_code == 422
+    assert message in response.text
+
+
 def create(client, kind, payload):
     response = client.post(f"{ROOT}/teaching/{kind}", json=payload)
     assert response.status_code == 201, response.text
@@ -214,13 +326,87 @@ def test_teaching_adapter_checks_generated_scope_count_and_duration(monkeypatch)
     returned["items"][0]["citation_ids"] = ["foreign"]
     with pytest.raises(GenerationError, match="引用"):
         asyncio.run(provider.generate_teaching("quiz", spec, evidence))
-    returned = lesson_payload()["body"]
+    returned = full_lesson_payload()["body"]
     spec = {**deepcopy(returned), "nodes": spec["nodes"]}
-    valid, _ = asyncio.run(provider.generate_teaching("lesson", spec, evidence))
+    valid, info = asyncio.run(provider.generate_teaching("lesson", spec, evidence))
     assert valid.duration == 45
+    assert info["prompt_version"] == "lesson-v2"
+    assert info["schema_version"] == "LessonBody-v2"
+    assert captured["max_tokens"] == 14400
+    sent = json.loads(captured["messages"][1]["content"])
+    assert sent["lesson_requirements"]["minimum_content_chars"] == 2700
+    assert "整节课" in captured["messages"][0]["content"]
     returned["segments"][0]["minutes"] = 40
     with pytest.raises(GenerationError, match="分钟"):
         asyncio.run(provider.generate_teaching("lesson", spec, evidence))
+
+
+@pytest.mark.parametrize(
+    "failure", [None, "outline", "short", "interaction", "truncated", "timeout"]
+)
+def test_lesson_generation_route_uses_full_contract_and_does_not_save_bad_output(
+    api, monkeypatch, failure
+):
+    from ta_backend.services import generation
+
+    client, _ = api
+    returned = full_lesson_payload()["body"]
+    if failure == "outline":
+        returned = lesson_payload()["body"]
+    elif failure == "short":
+        for segment in returned["segments"]:
+            segment["content"] = "介绍概念。"
+    elif failure == "interaction":
+        returned["segments"][1]["expected_response"] = ""
+    captured = {}
+    original = httpx.AsyncClient
+
+    def handle(request):
+        captured.update(json.loads(request.content))
+        if failure == "timeout":
+            raise httpx.ReadTimeout("test-only", request=request)
+        return httpx.Response(
+            200,
+            json={
+                "choices": [
+                    {
+                        "finish_reason": "length" if failure == "truncated" else "stop",
+                        "message": {"content": json.dumps(returned)},
+                    }
+                ],
+            },
+        )
+
+    def mock_client(**kwargs):
+        assert kwargs["timeout"] == 180.0
+        return original(transport=httpx.MockTransport(handle), **kwargs)
+
+    monkeypatch.setattr(generation.httpx, "AsyncClient", mock_client)
+    client.app.state.generation_provider = ExternalAPIProvider(
+        Settings(
+            database_url="sqlite:///:memory:",
+            llm_base_url="https://test.example/v1",
+            llm_api_key="test-only",
+            llm_model="test-only",
+        )
+    )
+    # 即使从旧提纲发起，也必须要求并得到完整讲义。
+    response = client.post(f"{ROOT}/teaching/lesson", json={**lesson_payload(), "generate": True})
+    spec = json.loads(captured["messages"][1]["content"])["requirements"]
+    assert spec["format_version"] == 2
+    saved = client.get(f"{ROOT}/teaching/lesson").json()
+    if failure:
+        assert response.status_code == 503
+        assert not saved
+        if failure == "truncated":
+            assert "generation_truncated" in response.text
+        elif failure == "timeout":
+            assert "generation_timeout" in response.text
+    else:
+        assert response.status_code == 201, response.text
+        assert response.json()["body"]["format_version"] == 2
+        assert response.json()["status"] == "draft"
+        assert len(saved) == 1
 
 
 def test_generated_content_is_persisted_as_unreviewed_structured_draft(api):

@@ -54,10 +54,41 @@ ID 为 UUID 或已有演示 ID；时间使用 UTC ISO 8601；所有课程资源�
 | POST | `/{id}/review` | 当前版本教师审核，通过前检查内容与依赖 |
 | GET | `/{id}/export` | 仅导出有效审核版本，Markdown 含正文和课程依据 |
 
-创建输入 `title/target_node_ids/body/generate`，目标 1–5 个已确认的具体知识点；更新改用 `expected_version`，不接受生成开关。生成始终建立新草稿，不覆盖当前版本。响应在原草稿字段上增加 `kind/body`，修订快照也保留结构化正文。
+创建输入 `title/target_node_ids/body/generate`，目标 1–5 个已确认的具体知识点；更新改用 `expected_version`，不接受生成开关。原创建接口的 `generate=true` 始终建立新草稿；课堂讲义页面现采用下述分段接口，在已有草稿上逐段创建修订。响应在原草稿字段上增加 `kind/body`，修订快照也保留结构化正文。
 
 - 题组 body：`difficulty=basic/intermediate/advanced`，`items` 为 1–5 题，`missing_info` 为待补充事项。逐题字段：`type=single_choice/short_answer`、`stem/options/answer/explanation/node_ids/citation_ids`。单选四项，答案 A–D；简答的 options 为空。草稿可留白，生成输出与通过审核时检查完整性、答案选项一致性和组内近重复题干。
-- 备课 body：`duration/objectives/key_questions/segments/missing_info`；duration 为 5–240 分钟。逐段字段：`title/minutes/content/activity/example/node_ids/citation_ids/quiz_ids`，最多 12 段。quiz_ids 指向同课程已审核题组；保存时记录 examples 快照。审核、导出时重新确认例题版本仍有效。分段总时长必须等于 duration 才能审核。
+- 课堂讲义 body：`format_version/plan_confirmed/duration/objectives/key_questions/preparation/homework/student_homework/segments/missing_info`；duration 为 5–240 分钟，最多 24 段。student_homework 单独保存不含答案的学生版课后任务；旧版混合的 homework 不自动发给学生。新建页面和自动生成采用 `format_version=2`；旧内容未带此字段时按 `1` 读取，保留原提纲的编辑和审核规则，不批量改写历史数据。missing_info 最多 500 项，合并分段生成的待补充事项，不静默截断。
+- 逐段字段：`id/title/minutes/content/activity/example/node_ids/citation_ids/quiz_ids`，以及 `stage=opening/instruction/practice/summary`、`student_activity/expected_response/check_for_understanding/misconceptions`。id 为稳定的环节标识，排序后仍对应同一环节；旧稿保存时补齐。content 上限 16000 字符；其余上限见 OpenAPI。quiz_ids 指向同课程已审核题组，保存时记录 examples 快照，审核和导出时重查版本；活动和互动时间包含在 minutes 内，各段之和须等于 duration。
+- 完整讲义审核和生成校验：须含课前准备、课后巩固、导入/讲解/练习/总结四类环节，首段导入、末段总结；每段有教师引导、学生任务、参考回答、检查反馈，全课至少一份例题演示及易错点。讲解正文非空白字符合计至少 `duration * 60`（45 分钟为 2700 字符），每段至少 `min(120, minutes * 15)`，用于拦截简略提纲，并不代表事实正确或教学质量合格。草稿仍可不完整保存。
+- 自动生成始终要求 v2，不接受降级的旧提纲；提示词要求展开概念、推导（适用时）、完整例题、具体互动步骤、练习和答案、总结检测，事实依赖本次课程依据，证据缺口写入 missing_info。单次请求的输出预算为 `min(32000, max(8000, duration * 320))` tokens，HTTP 超时为 180 秒；截断、过短或缺项均报错且不保存，不自动重试。答疑和出题仍使用原有 60 秒超时，不额外指定输出预算。
+
+新增字段存于既有 TeachingContent/ContentRevision 的 JSON 正文，不新增数据库列，无需迁移。当前 `lesson-v2` 仅完成离线模拟验证，尚未使用真实模型服务验收长篇生成效果。
+
+### 分环节生成、预览与成品导出
+
+| 方法 | `/courses/{c}/teaching/lesson` 后缀 | 行为 |
+| --- | --- | --- |
+| POST | `/{id}/confirm-plan` | 输入 expected_version，检查目标、四类环节、顺序、时长、标题与知识点分配，保存确认修订；不调用模型 |
+| POST | `/{id}/segments/{segment_id}/generate` | 输入 expected_version、可选 rewrite_instruction（最多 2000 字符）；只生成或重写指定环节并保存新版本 |
+| GET | `/{id}/print?expected_version=N&audience=teacher` | 打印前重新核查当前审核、引用、关联题组和版本；audience=teacher/student，成功返回 version |
+| GET | `/{id}/word?audience=teacher` | 下载当前有效审核讲义的 DOCX；audience=teacher/student，默认教师版 |
+
+plan_confirmed 由确认接口控制，客户端无法在普通保存时直接置为 true；调整课时、目标、重点问题、环节顺序/标识/标题/类型/用时/知识点或题组分配后失效。只修改正文、互动、准备与作业保留安排确认，但原内容审核仍失效。
+
+分段接口必须已有确认安排；仅使用该段目标的同课程有效依据、所选题组和前两段的有限衔接正文。输出须保持该段安排和关联不变，正文至少 minutes * 60 个非空白字符，包含具体互动与反馈；讲解和练习须有例题，导入须给课前准备，总结须给课后巩固。单次输出预算 `min(20000, max(4000, minutes * 320))`，超时 180 秒，不自动重试。生成前结束读取事务，生成后重新读取讲义版本；并行编辑返回 409，不覆盖新内容。失败段不保存，已完成段保持原版本。
+
+前端顺序调用空白环节，跳过已有正文；停止按钮在当前请求完成后停止后续环节。局部重写为明确的替换操作，修订历史保留原内容。课前准备和课后巩固只有原字段为空时才采用生成值，不覆盖教师输入。分段待补充事项合并到正文，教师可手工核查并删除已解决项。
+
+阅读预览支持 Markdown 和本地 KaTeX 公式，输入 HTML 转义，图片只加载同课程原文插图。正式 PDF 通过浏览器“打印 / 保存 PDF”输出，服务端不依赖浏览器或 Word；打印前重查审核版本。DOCX 通过 python-docx 与 LaTeX → MathML → Office Math 转换生成，公式可编辑；不支持的公式会明确报错，不降级为假公式或空结果。预览和 Word 的页数可因排版引擎不同而变化。
+
+教师版包含全部教学字段，学生版只保留目标、重点问题、课堂安排、讲解正文、学生任务、无答案的题组题干/选项、student_homework 与课程依据。教师引导、单列的例题解析、预期回答、反馈、易错提示、混合 homework 和待补充事项隐藏。讲解正文中的示范推导保持原文，发放前仍需教师预览确认。题组快照新增 student_content，由已审核结构化题目生成，不从答案 Markdown 猜测或删除文本；旧快照没有此字段时学生版打印/导出返回 409，要求重新保存并审核。
+
+### 原文公式、插图与按目标分配依据
+
+新上传 DOCX 使用 paragraph-v3：保留段内、表格内的常见 Word 公式为 LaTeX（分式、上下标、根式、求和/积分、括号和矩阵等），无法完整提取的公式在原位置和解析警告中提示回看原件。插图使用 `![说明](asset:rIdN)` 保留原文关系引用，不进行图像内容识别。`GET /courses/{c}/documents/{material_id}/images/{rIdN}` 从该资料的原 DOCX 返回 PNG/JPEG/GIF/WebP，限制在同课程，其他格式明确要求下载原件。旧资料不自动重新解析；上传替换版本后才能取得新解析结果。
+
+检索的 graph_augmented 模式先为每个目标分配一份有效直接依据，再以词面相关性补足 budget；新增 node_evidence：`[{node_id, citation_ids, has_active_source}]`。has_active_source 指该节点是否有有效直接原文，citation_ids 指本次选入的直接依据。分段生成发现任一目标缺少有效直接依据时返回 422，提示补充资料。
+
 - 教学节点和引用按具体题目/环节聚合后保存，不能通过仅选择生成目标增加覆盖。审核还要求所有目标都已关联到具体内容。
 - 题组编辑或退回会使引用它的已审核备课失效；资料替换使所有受影响的已审核内容失效。原答疑 PATCH 不能改写题组或教案。
 
