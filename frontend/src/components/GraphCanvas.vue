@@ -5,8 +5,14 @@ import AppIcon from './AppIcon.vue'
 import type { Graph } from '../types'
 
 const props = withDefaults(
-  defineProps<{ graph: Graph; selectedId?: string; highlightIds?: string[] }>(),
-  { highlightIds: () => [] },
+  defineProps<{
+    graph: Graph
+    selectedId?: string
+    highlightIds?: string[]
+    predictedIds?: string[]
+    confirmedIds?: string[]
+  }>(),
+  { highlightIds: () => [], predictedIds: () => [], confirmedIds: () => [] },
 )
 const emit = defineEmits<{ select: [nodeId: string] }>()
 const container = ref<HTMLDivElement>()
@@ -52,7 +58,9 @@ function zoomBy(factor: number) {
 }
 
 function syncSelection() {
-  graph.nodes().unselect().removeClass('highlighted')
+  graph.nodes().unselect().removeClass('highlighted question-predicted question-confirmed')
+  props.predictedIds.forEach((id) => graph.getElementById(id).addClass('question-predicted'))
+  props.confirmedIds.forEach((id) => graph.getElementById(id).addClass('question-confirmed'))
   props.highlightIds.forEach((id) => graph.getElementById(id).addClass('highlighted'))
   if (props.selectedId) graph.getElementById(props.selectedId).select()
 }
@@ -103,6 +111,7 @@ onMounted(() => {
           'text-valign': 'center',
           'text-halign': 'center',
           'text-wrap': 'wrap',
+          'text-overflow-wrap': 'anywhere',
           'text-max-width': '116px',
           width: 136,
           height: 52,
@@ -132,6 +141,19 @@ onMounted(() => {
           'background-color': '#fbf2c8',
           'border-color': '#1f1c17',
           'border-width': 2,
+        },
+      },
+      {
+        selector: 'node.question-predicted',
+        style: { 'border-style': 'dashed', 'border-width': 3, 'border-color': '#6e675b' },
+      },
+      {
+        selector: 'node.question-confirmed',
+        style: {
+          'border-style': 'solid',
+          'border-width': 4,
+          'border-color': '#1f1c17',
+          'background-color': '#ece6d8',
         },
       },
       {
@@ -184,7 +206,10 @@ onMounted(() => {
   observer.observe(container.value!)
   syncSelection()
 })
-watch(() => [props.selectedId, props.highlightIds], syncSelection)
+watch(
+  () => [props.selectedId, props.highlightIds, props.predictedIds, props.confirmedIds],
+  syncSelection,
+)
 onBeforeUnmount(() => {
   observer.disconnect()
   graph.destroy()
@@ -197,11 +222,19 @@ onBeforeUnmount(() => {
       class="graph-canvas"
       role="img"
       aria-label="课程知识图谱，也可通过知识点列表选择节点"
+      :data-predicted-ids="predictedIds.join(',')"
+      :data-confirmed-ids="confirmedIds.join(',')"
     ></div>
     <div class="graph-controls">
       <div class="graph-legend">
-        <span><i class="legend-node"></i>已确认</span>
-        <span><i class="legend-candidate"></i>待确认</span>
+        <template v-if="predictedIds.length || confirmedIds.length">
+          <span><i class="legend-prediction"></i>模型建议</span>
+          <span><i class="legend-confirmation"></i>人工确认</span>
+        </template>
+        <template v-else>
+          <span><i class="legend-node"></i>已确认</span>
+          <span><i class="legend-candidate"></i>待确认</span>
+        </template>
       </div>
       <div class="graph-zoom-group">
         <button type="button" class="icon-button" aria-label="放大图谱" @click="zoomBy(1.2)">

@@ -7,6 +7,7 @@ __pycache__/
 .env
 node_modules/
 dist/
+frontend/tmp-dist/
 *.tsbuildinfo
 .impeccable/
 data/runtime/*
@@ -86,3 +87,7 @@ Thumbs.db
 !/data/runtime/
 /data/runtime/*
 !/data/runtime/.gitkeep
+
+# 小规模手写开发问题与固定节点范围；不包含正式学生数据。
+!/data/annotations/development-nlp-v1.jsonl
+!/data/annotations/curriculum-nodes-v1.json

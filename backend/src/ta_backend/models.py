@@ -138,11 +138,37 @@ class IngestionJob(Base):
     created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utc_now)
 
 
+class QuestionBatch(Base):
+    __tablename__ = "question_batches"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    course_id: Mapped[str] = mapped_column(ForeignKey("courses.id"), index=True)
+    title: Mapped[str] = mapped_column(String(120))
+    grouping_version: Mapped[str] = mapped_column(String(50), default="tfidf-complete-link-v1")
+    similarity_threshold: Mapped[float] = mapped_column(default=0.6)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utc_now)
+
+
+class QuestionGroup(Base):
+    __tablename__ = "question_groups"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    course_id: Mapped[str] = mapped_column(ForeignKey("courses.id"), index=True)
+    batch_id: Mapped[str] = mapped_column(ForeignKey("question_batches.id"), index=True)
+    title: Mapped[str] = mapped_column(String(200))
+    status: Mapped[str] = mapped_column(String(30), default="candidate")
+    version: Mapped[int] = mapped_column(default=1)
+    proposal: Mapped[dict] = mapped_column(JSON, default=dict)
+
+
 class Question(Base):
     __tablename__ = "questions"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
     course_id: Mapped[str] = mapped_column(ForeignKey("courses.id"), index=True)
+    batch_id: Mapped[str | None] = mapped_column(ForeignKey("question_batches.id"), index=True)
+    group_id: Mapped[str | None] = mapped_column(ForeignKey("question_groups.id"), index=True)
+    batch_position: Mapped[int | None] = mapped_column(default=None)
     text: Mapped[str] = mapped_column(Text)
     family_id: Mapped[str | None] = mapped_column(String(80), default=None)
     graph_version: Mapped[int] = mapped_column()
@@ -190,4 +216,15 @@ class ContentRevision(Base):
     content_id: Mapped[str] = mapped_column(ForeignKey("teaching_contents.id"), primary_key=True)
     version: Mapped[int] = mapped_column(primary_key=True)
     snapshot: Mapped[dict] = mapped_column(JSON)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utc_now)
+
+
+class RetrievalComparison(Base):
+    __tablename__ = "retrieval_comparisons"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    course_id: Mapped[str] = mapped_column(ForeignKey("courses.id"), index=True)
+    question_text: Mapped[str] = mapped_column(Text)
+    snapshot: Mapped[dict] = mapped_column(JSON)
+    assessment: Mapped[dict] = mapped_column(JSON, default=dict)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utc_now)

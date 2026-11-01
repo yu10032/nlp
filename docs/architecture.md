@@ -1,62 +1,42 @@
-# 架构与维护边界
+# 架构与维护
 
-## 结构选择
+Vue 3 + TypeScript + Vite 提供工作台，FastAPI 提供单服务 API，SQLAlchemy + SQLite 保存数据，Alembic 管理迁移。图谱使用关系表与 Cytoscape；离线训练独立于业务服务。
 
-单仓库、单后端服务。Vue 负责交互，FastAPI 提供业务 API，SQLAlchemy + SQLite 保存首版数据，Alembic 管理表结构。
-图谱存为普通关系表，一跳邻域与关联查询先用 SQL 完成，不引入独立图数据库。
-离线训练是独立 Python 包，后续通过 `services/matching.py` 中的 `Matcher` 协议接入推理。
-
-```mermaid
-flowchart LR
-  Web[Vue 工作台] --> API[FastAPI 路由]
-  API --> Service[业务计算与匹配接口]
-  Service --> DB[(课程 / 资料 / 图谱 / 教学内容)]
-  Service --> Matcher[匹配推理，当前为名称基线]
-  Train[离线编码与 MLP 训练] -. 后续接入权重 .-> Matcher
-  Service --> LLM[生成 API 适配器，配置后调用]
-```
-
-前端按页面加载功能，API 请求统一在 `api.ts`。初期用 Vue 的 ref/computed 保持局部状态；出现跨页面编辑状态需求后再考虑 Pinia。
-后端路由按课程、资料、图谱、问题、答疑、教学工具与覆盖划分。当前规模把 schema 放在对应路由中，避免为少量类型增加多层跳转。
-资料解析使用 FastAPI BackgroundTasks 并保存任务状态；进程重启后将中断任务明确标为失败。尚未引入外部队列或自动重试。
-
-## 已落地的数据
-
-| 对象 | 用途 |
+| 位置 | 职责 |
 | --- | --- |
-| Course | 课程名称与空间 |
-| Material / Chunk | 有版本的资料、段落定位和原文 |
-| KnowledgeNode / KnowledgeEdge | 节点、别名、候选或已确认关系、来源与关系版本 |
-| NodeEvidence | 节点与资料片段的多对多关联 |
-| TeachingContent | 答疑、题目、备课的共享草稿与当前审核版本 |
-| ContentNode / ContentCitation | 教学内容关联知识点与来源 |
+| `frontend/src/views/`、`components/` | 业务页面和共享交互，视觉规则见 [DESIGN.md](../DESIGN.md) |
+| `frontend/src/api.ts`、`types.ts` | 集中请求与响应类型 |
+| `backend/src/ta_backend/api/` | HTTP 输入、课程范围与版本冲突 |
+| `backend/src/ta_backend/services/` | 解析、检索、匹配、生成、审核与覆盖计算 |
+| `backend/src/ta_backend/models.py`、`backend/migrations/` | 持久化对象与迁移，当前版本 `0004` |
+| `training/` | 数据准备、冻结编码器、MLP 训练与本地推理，见[训练说明](../training/README.md) |
+| `data/runtime/`、`artifacts/` | 数据库、原件和模型产物，不随 Git 分发 |
 
-所有课程内对象都保存 `course_id`。现有读取接口限定当前课程；未来写入关联时，也必须在该课程内查询目标对象。
-这是课程数据范围隔离，尚未实现用户身份和访问授权，不能当作已完成权限系统。
-ID 使用可读演示 ID 或 UUID，不使用内容哈希。数据库配置和本地存储统一以 `work` 为根路径。
+## 数据与业务规则
 
-第一阶段已加入 IngestionJob、Question、QuestionPrediction、QuestionLink、ReviewRecord 和 ContentRevision。
-后续随业务加入 CourseMember、QuestionBatch、QuestionGroup 和 ExperimentRun。
-机器预测和人工确认分开保存，避免覆盖历史记录。备课正文已经按环节保存，每段保留节点、引用与所选题组。审核单位是整份教案，关联按环节聚合；不声称已实现逐段独立签核。
+- **课程**：所有业务对象和关联限定 `course_id`；范围隔离与用户鉴权分别处理，当前尚无登录和成员权限。
+- **资料**：`Material.id` 指具体版本，`document_id` 串联换版；`Chunk` 保存原文与定位。新版本解析成功后才停用旧版。解析任务持久化，重启中断任务标为失败。
+- **图谱与问题**：节点和边保留来源及确认状态；`QuestionPrediction` 与 `QuestionLink` 分别保存模型建议和人工确认，纠正不覆盖原预测。
+- **提问整理**：`QuestionBatch` 保存导入批次，批内序号保留输入顺序；`QuestionGroup` 保存候选与人工分组。一个问题最多属于本批次的一个组；拆组不删除原问题，不修改训练 `family_id` 或知识点标签。词面候选采用组内两两过阈值的完全链接，不按共同知识点自动合并。
+- **教学内容**：答疑、题组、讲义共享 `TeachingContent`、修订和审核记录；具体题目／环节聚合知识点及引用。修改内容、引用、关联或依赖版本，使旧审核失效。
+- **正式覆盖与导出**：要求当前版本审核有效、未归档、引用及关联题组有效；覆盖分母为已确认的具体节点，排除章节。空分母返回 `null`。
+- **检索对照**：`RetrievalComparison` 保存两组证据快照和独立评价；资料或图谱变化后提示旧快照，记录不进入教学覆盖。
 
-## 覆盖与审核规则
+## 模型与检索
 
-当前目标集合为课程全部 `confirmed` 节点。资料覆盖要求节点关联的资料仍有效。
-题目/备课覆盖要求 `status=approved`、`reviewed_version=version` 且未归档；任一引用资料失效时，内容退出正式覆盖。
-空目标集合返回 `ratio=null`，前端显示无可统计节点。统计结果由数据库计算，API 生成服务不参与计数。
+名称／TF-IDF 可轻量运行。配置本地 run 后加载冻结句编码器和 MLP，限定课程、图谱版本与节点文本快照；范围不符时显式停用，自动策略使用可用词面方法。启动只读取本地模型，后端不导入训练入口。
 
-当前答疑编辑接口已增加内容版本、修订快照与审核事件，正文、引用或关联变更会使旧审核失效；后续问题组也沿用此规则。
-正式导出只接收当前有效审核版本。资料更新保留旧版本，受影响内容先进入重新核查状态。
+原文检索使用 TF-IDF。增强模式只读取已确认的一跳关系及有效来源，优先为目标分配直接依据，再按相关性填满预算，按片段 ID 去重。对照共用输入与分数，保存补入、移出、原文版本和路径；新增数量不代表质量提升。
 
-## 生成与检索接入顺序
+## 生成与讲义
 
-第一阶段已实现一个兼容 JSON 输出的 HTTP 生成适配器，使用后端环境变量管理密钥，不预建多供应商注册机制。
-答疑、题目、备课共用证据查询和模型客户端，各业务单独定义结构化输入输出。
-引用 ID 只能来自本次证据集合，图扩展只读取已确认关系并限制在一跳。
-文件解析与外部输出保留必要结构校验；内部业务对象不重复检查。不要用空列表吞掉解析或 API 失败。
+答疑、出题、讲义共用证据服务和兼容 Chat Completions 的 JSON 客户端，密钥只在后端配置。外部输出校验结构及引用范围，错误直接反馈；教学质量由教师核查。
 
-## 技术依据
+讲义安排、稳定环节 ID、正文和题组快照放在现有 JSON 字段中。分段生成前确认安排，返回后重查内容版本；冲突时拒绝覆盖，失败段不保存，已完成段保留。教师／学生版使用明确字段，公式与成品导出由现有渲染、Word 转换和浏览器打印完成。
 
-- [Vue 官方工具链建议](https://vuejs.org/guide/scaling-up/tooling.html)：Vue + TypeScript + Vite。
-- [FastAPI lifespan](https://fastapi.tiangolo.com/advanced/events/)：在应用生命周期内创建和释放数据库引擎。
-- [SQLAlchemy 2.0 ORM](https://docs.sqlalchemy.org/en/20/orm/quickstart.html)：使用类型化映射和 Session。
+## 开发维护
+
+- 使用函数、具体业务模块和必要的边界校验；不增加通用服务层、任务平台、哈希清单或重复检查。
+- 字段变化同步迁移、前端类型和[接口约定](api.md)；常规文档直接维护现有页面。
+- 代码检查执行 `scripts/check.ps1`；重点覆盖课程隔离、来源有效性、版本冲突和审核失效，外部生成测试使用模拟响应。
+- 后续优先独立复核标签与真实教学内容，再完善问题组统一答疑；公网部署前补齐成员权限、持久化恢复和目标服务器验收。

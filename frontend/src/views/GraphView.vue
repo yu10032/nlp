@@ -1,14 +1,24 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
-import { useRoute } from 'vue-router'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { api } from '../api'
 import AppIcon from '../components/AppIcon.vue'
 import GraphCanvas from '../components/GraphCanvas.vue'
+import MatchMethod from '../components/MatchMethod.vue'
 import SourceList from '../components/SourceList.vue'
-import type { DocumentChunk, Graph, NodeDetail, NodeWrite, RetrievalEvidence } from '../types'
+import type {
+  DocumentChunk,
+  Graph,
+  NodeDetail,
+  NodeWrite,
+  RetrievalEvidence,
+  QuestionResult,
+  NodeQuestions,
+} from '../types'
 
 const props = defineProps<{ courseId: string }>()
 const route = useRoute()
+const router = useRouter()
 const graph = ref<Graph>()
 const selected = ref<NodeDetail>()
 const search = ref('')
@@ -18,6 +28,82 @@ const editing = ref(false)
 const newNode = ref(false)
 const edgeFormOpen = ref(false)
 const sourceOptions = ref<(DocumentChunk & { material_title: string })[]>([])
+const questionText = ref('')
+const questionMethod = ref('auto')
+const question = ref<QuestionResult>()
+const questionBusy = ref(false)
+const adjustingLinks = ref(false)
+const questionSelection = ref<string[]>([])
+const relatedQuestions = ref<NodeQuestions>()
+const predictedIds = computed(() => question.value?.predictions.map((p) => p.node_id) ?? [])
+const confirmedIds = computed(() => question.value?.confirmed_node_ids ?? [])
+const linkOptions = computed(
+  () => graph.value?.nodes.filter((n) => n.status === 'confirmed' && n.kind !== 'chapter') ?? [],
+)
+
+function applyQuestion(value: QuestionResult) {
+  question.value = value
+  questionText.value = value.text
+  questionSelection.value = value.needs_review
+    ? value.predictions.map((p) => p.node_id)
+    : [...value.confirmed_node_ids]
+  adjustingLinks.value = false
+}
+async function loadQuestion(id: string) {
+  questionBusy.value = true
+  error.value = ''
+  try {
+    applyQuestion(await api.question(props.courseId, id))
+    const node = confirmedIds.value[0] ?? predictedIds.value[0]
+    if (node) await selectNode(node)
+  } catch (cause) {
+    error.value = (cause as Error).message
+  } finally {
+    questionBusy.value = false
+  }
+}
+async function matchQuestion() {
+  questionBusy.value = true
+  error.value = ''
+  try {
+    applyQuestion(await api.matchQuestion(props.courseId, questionText.value, questionMethod.value))
+    await router.replace({ query: { question: question.value!.id } })
+    if (predictedIds.value[0]) await selectNode(predictedIds.value[0])
+    else if (selected.value)
+      relatedQuestions.value = await api.nodeQuestions(props.courseId, selected.value.id)
+  } catch (cause) {
+    error.value = (cause as Error).message
+  } finally {
+    questionBusy.value = false
+  }
+}
+async function confirmQuestion() {
+  questionBusy.value = true
+  error.value = ''
+  try {
+    applyQuestion(
+      await api.confirmLinks(props.courseId, question.value!.id, questionSelection.value),
+    )
+    if (selected.value)
+      relatedQuestions.value = await api.nodeQuestions(props.courseId, selected.value.id)
+  } catch (cause) {
+    error.value = (cause as Error).message
+  } finally {
+    questionBusy.value = false
+  }
+}
+watch(
+  () => route.query.question,
+  (id) => {
+    if (typeof id === 'string' && id !== question.value?.id && graph.value) void loadQuestion(id)
+  },
+)
+watch(
+  () => route.query.node,
+  (id) => {
+    if (typeof id === 'string' && graph.value && !editing.value) void selectNode(id)
+  },
+)
 const form = reactive<NodeWrite>({
   name: '',
   aliases: [],
@@ -83,9 +169,16 @@ async function selectNode(id: string) {
   error.value = ''
   editing.value = false
   edgeFormOpen.value = false
+  relatedQuestions.value = undefined
   try {
-    const detail = await api.node(props.courseId, id)
-    if (request === selectionRequest) selected.value = detail
+    const [detail, questions] = await Promise.all([
+      api.node(props.courseId, id),
+      api.nodeQuestions(props.courseId, id),
+    ])
+    if (request === selectionRequest) {
+      selected.value = detail
+      relatedQuestions.value = questions
+    }
   } catch (cause) {
     error.value = (cause as Error).message
   }
@@ -180,7 +273,13 @@ function nodeName(id: string) {
 onMounted(async () => {
   try {
     graph.value = await api.graph(props.courseId)
-    const id = typeof route.query.node === 'string' ? route.query.node : graph.value.nodes[0]?.id
+    if (typeof route.query.question === 'string') await loadQuestion(route.query.question)
+    const id =
+      typeof route.query.node === 'string'
+        ? route.query.node
+        : !question.value
+          ? graph.value.nodes[0]?.id
+          : undefined
     if (id) await selectNode(id)
     if (route.query.source) await editNode(true)
   } catch (cause) {
@@ -207,6 +306,88 @@ onMounted(async () => {
   <div v-if="!graph && !error" class="loading-block" role="status">正在展卷读取图谱…</div>
   <div v-if="graph" class="graph-workbench">
     <section class="graph-main">
+      <section class="graph-question sheet" aria-label="问题与图谱关联">
+        <form @submit.prevent="matchQuestion">
+          <label class="section-label" for="graph-question">把课堂问题放进知识脉络</label>
+          <textarea
+            id="graph-question"
+            v-model="questionText"
+            rows="2"
+            maxlength="4000"
+            required
+            placeholder="输入学生的问题，定位可能涉及的知识点…"
+          ></textarea>
+          <div class="experiment-actions">
+            <MatchMethod
+              v-model="questionMethod"
+              :course-id="courseId"
+              :disabled="questionBusy || editing"
+            />
+            <button class="primary" :disabled="questionBusy || editing || !questionText.trim()">
+              {{ questionBusy ? '处理中…' : '匹配并定位' }}
+            </button>
+          </div>
+        </form>
+        <div v-if="question" class="question-context">
+          <p class="question-original">{{ question.text }}</p>
+          <div class="question-associations">
+            <span class="muted">原始建议</span>
+            <span v-for="p in question.predictions" :key="p.node_id" class="tag predicted"
+              >{{ nodeName(p.node_id) }} {{ p.score.toFixed(3) }}</span
+            >
+            <span v-if="!question.predictions.length" class="muted">未达到匹配阈值</span>
+          </div>
+          <div class="question-associations">
+            <span class="muted">人工确认</span>
+            <span v-if="question.needs_review" class="muted">尚未核查</span>
+            <template v-else
+              ><span v-for="id in confirmedIds" :key="id" class="tag confirmed">{{
+                nodeName(id)
+              }}</span
+              ><span v-if="!confirmedIds.length">已确认无关联</span></template
+            >
+            <button
+              class="text-button"
+              type="button"
+              :disabled="questionBusy || editing"
+              @click="adjustingLinks = !adjustingLinks"
+            >
+              {{ adjustingLinks ? '收起调整' : '调整关联' }}
+            </button>
+          </div>
+          <form v-if="adjustingLinks" class="question-link-form" @submit.prevent="confirmQuestion">
+            <div class="node-checks">
+              <label v-for="node in linkOptions" :key="node.id" class="check-label"
+                ><input v-model="questionSelection" type="checkbox" :value="node.id" />{{
+                  node.name
+                }}</label
+              >
+            </div>
+            <div class="entry-actions">
+              <button class="secondary" :disabled="questionBusy || questionSelection.length > 10">
+                确认关联</button
+              ><button class="text-button" type="button" @click="questionSelection = []">
+                清空选择
+              </button>
+            </div>
+          </form>
+          <div class="question-context-footer">
+            <small class="muted"
+              >{{ question.model_version }} · 预测时图谱 v{{ question.graph_version
+              }}<template v-if="question.graph_version !== graph.version"
+                >（当前 v{{ graph.version }}，需重新核查）</template
+              ></small
+            >
+            <RouterLink :to="{ path: '/qa', query: { question: question.id } }"
+              >就此答疑</RouterLink
+            >
+            <RouterLink
+              :to="{ path: '/experiments', query: { view: 'retrieval', question: question.id } }"
+              >检索对照</RouterLink
+            >
+          </div>
+        </div>
+      </section>
       <div class="graph-toolbar">
         <div class="search-field">
           <label class="sr-only" for="node-search">查找知识点</label>
@@ -226,6 +407,8 @@ onMounted(async () => {
           :graph="graph"
           :selected-id="selected?.id"
           :highlight-ids="searchHighlights"
+          :predicted-ids="predictedIds"
+          :confirmed-ids="confirmedIds"
           @select="selectNode"
         />
         <div v-else class="empty-state graph-empty">
@@ -239,7 +422,12 @@ onMounted(async () => {
             :key="node.id"
             type="button"
             class="node-tab"
-            :class="{ selected: selected?.id === node.id, candidate: node.status === 'candidate' }"
+            :class="{
+              selected: selected?.id === node.id,
+              candidate: node.status === 'candidate',
+              'question-predicted': predictedIds.includes(node.id),
+              'question-confirmed': confirmedIds.includes(node.id),
+            }"
             @click="selectNode(node.id)"
           >
             {{ node.name }}
@@ -344,6 +532,36 @@ onMounted(async () => {
           </div>
           <SourceList v-if="evidence.length" :evidence="evidence" />
           <p v-else class="muted section-empty">尚未关联有效资料</p>
+        </div>
+
+        <div class="entry-section">
+          <div class="ink-section-head">
+            <h3>相关提问</h3>
+            <span v-if="relatedQuestions">{{ relatedQuestions.total }} 条</span>
+          </div>
+          <div v-for="item in relatedQuestions?.items" :key="item.id" class="related-question">
+            <button
+              class="text-button"
+              type="button"
+              :disabled="questionBusy"
+              @click="router.replace({ query: { question: item.id } })"
+            >
+              {{ item.text }}
+            </button>
+            <small :class="item.node_relation === 'confirmed' ? 'confirmed' : 'muted'">{{
+              {
+                confirmed: '人工确认',
+                predicted: '模型建议 · 待核查',
+                not_selected: '原建议 · 人工已改选',
+              }[item.node_relation]
+            }}</small>
+          </div>
+          <p v-if="relatedQuestions && !relatedQuestions.total" class="muted section-empty">
+            还没有关联到这里的提问
+          </p>
+          <p v-if="relatedQuestions && relatedQuestions.total > 50" class="footnote">
+            显示最近 50 条相关提问
+          </p>
         </div>
 
         <div class="entry-section">

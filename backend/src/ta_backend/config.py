@@ -15,6 +15,7 @@ class Settings:
     llm_base_url: str = ""
     llm_api_key: str = ""
     llm_model: str = ""
+    matcher_run_dir: Path | None = None
     max_upload_bytes: int = 20 * 1024 * 1024
 
     @classmethod
@@ -33,4 +34,7 @@ class Settings:
             llm_base_url=os.getenv("TA_LLM_BASE_URL", ""),
             llm_api_key=os.getenv("TA_LLM_API_KEY", ""),
             llm_model=os.getenv("TA_LLM_MODEL", ""),
+            matcher_run_dir=(PROJECT_ROOT / os.environ["TA_MATCHER_RUN_DIR"])
+            if os.getenv("TA_MATCHER_RUN_DIR")
+            else None,
         )

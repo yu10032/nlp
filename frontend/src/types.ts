@@ -72,6 +72,17 @@ export interface RetrievalEvidence extends Evidence {
   score?: number
   origin?: string
   active?: boolean
+  graph_paths?: {
+    kind: 'direct' | 'one_hop'
+    node_id: string
+    node_name: string
+    via_node_id?: string
+    via_node_name?: string
+    edge_id?: string
+    edge_source_id?: string
+    edge_target_id?: string
+    relation?: string
+  }[]
 }
 export interface RetrievalResult {
   retrieval_version: string
@@ -82,12 +93,65 @@ export interface RetrievalResult {
 }
 export interface QuestionResult {
   id: string
+  batch_id: string | null
+  group_id: string | null
   text: string
   graph_version: number
   model_version: string
   predictions: { node_id: string; score: number; rank: number; status: string }[]
   confirmed_node_ids: string[]
   needs_review: boolean
+}
+export interface QuestionBatchSummary {
+  id: string
+  title: string
+  created_at: string
+  question_count: number
+}
+export interface QuestionGroup {
+  id: string
+  title: string
+  status: 'candidate' | 'confirmed'
+  version: number
+  question_ids: string[]
+  proposal: { method: string; minimum_score?: number; suggested_member_ids?: string[] }
+}
+export interface QuestionBatch extends QuestionBatchSummary {
+  grouping_version: string
+  similarity_threshold: number
+  questions: QuestionResult[]
+  groups: QuestionGroup[]
+}
+export interface NodeQuestions {
+  total: number
+  items: (QuestionResult & { node_relation: 'confirmed' | 'predicted' | 'not_selected' })[]
+}
+export interface ComparisonSummary {
+  id: string
+  question_text: string
+  created_at: string
+}
+export type Relevance = 'relevant' | 'irrelevant' | 'uncertain'
+export interface RetrievalAssessment {
+  reviewer: string
+  relevance: Record<string, Relevance>
+  outcome: 'better' | 'worse' | 'mixed' | 'same' | 'uncertain'
+  note: string
+  updated_at?: string
+}
+export interface RetrievalComparison extends ComparisonSummary {
+  is_stale: boolean
+  assessment: Partial<RetrievalAssessment>
+  snapshot: {
+    graph_version: number
+    materials: { id: string; title: string; version: number }[]
+    nodes: { id: string; name: string }[]
+    question_context: { id: string; model_version: string; graph_version: number } | null
+    evidence_budget: number
+    basic: RetrievalResult
+    graph_augmented: RetrievalResult
+    difference: { shared: string[]; added: string[]; removed: string[] }
+  }
 }
 export interface DraftSummary {
   id: string
@@ -198,4 +262,48 @@ export interface TeachingWrite {
   title: string
   target_node_ids: string[]
   body: QuizBody | LessonBody
+}
+export interface MatcherState {
+  active_method: string
+  scope_reason: string
+  run_id: string | null
+  data_status: string | null
+  methods: { id: string; available: boolean }[]
+}
+export interface Ranking {
+  method: string
+  version: string
+  threshold: number
+  matches: { node_id: string; name: string; score: number }[]
+}
+export interface EvaluationMetric {
+  questions: number
+  micro_precision: number
+  micro_recall: number
+  micro_f1: number
+  exact_match: number | null
+  no_match_questions: number
+  no_match_false_link_rate: number | null
+  threshold: number
+}
+export interface ExperimentReport {
+  state: MatcherState
+  run: null | {
+    run_id: string
+    encoder_id: string
+    dataset_version: string
+    data_status: string
+    graph_version: number
+    selected_epoch: number
+    candidate_k: number
+    seed: number
+    train_seconds: number
+  }
+  history?: { epoch: number; train_loss: number; validation_loss: number }[]
+  split?: Record<string, { questions: number; families: string[] }>
+  evaluation?: {
+    methods: Record<string, EvaluationMetric>
+    candidate_recall: { k: number; ratio: number | null }
+    errors: { method: string; question: string; expected: string[]; predicted: string[] }[]
+  }
 }

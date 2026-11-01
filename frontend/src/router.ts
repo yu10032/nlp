@@ -26,7 +26,7 @@ export const sections = [
     icon: 'lessons',
   },
   { path: '/coverage', label: '知识点覆盖', shortLabel: '覆盖', group: 2, icon: 'coverage' },
-  { path: '/experiments', label: '模型实验', shortLabel: '实验', group: 2, icon: 'experiments' },
+  { path: '/experiments', label: '实验核查', shortLabel: '实验', group: 2, icon: 'experiments' },
 ]
 
 export const router = createRouter({

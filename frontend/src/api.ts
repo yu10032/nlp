@@ -1,5 +1,8 @@
 import type {
   Course,
+  MatcherState,
+  Ranking,
+  ExperimentReport,
   CourseDocument,
   Coverage,
   DocumentChunk,
@@ -13,6 +16,12 @@ import type {
   NodeDetail,
   NodeWrite,
   QuestionResult,
+  QuestionBatch,
+  QuestionBatchSummary,
+  NodeQuestions,
+  ComparisonSummary,
+  RetrievalComparison,
+  RetrievalAssessment,
   RetrievalResult,
   TeachingKind,
   TeachingContent,
@@ -48,8 +57,8 @@ export const api = {
   reviewEdge: (id: string, edge: string, result: string) =>
     request<KnowledgeEdge>(`${course(id)}/edges/${edge}/review`, json('POST', { result })),
   coverage: (id: string) => request<Coverage>(`${course(id)}/coverage`),
-  match: (id: string, question: string) =>
-    request<MatchResult>(`${course(id)}/matches`, json('POST', { question })),
+  match: (id: string, question: string, method = 'name') =>
+    request<MatchResult>(`${course(id)}/matches`, json('POST', { question, method })),
   documents: (id: string) => request<CourseDocument[]>(`${course(id)}/documents`),
   chunks: (id: string, document: string) =>
     request<DocumentChunk[]>(`${course(id)}/documents/${document}/chunks`),
@@ -66,17 +75,84 @@ export const api = {
   },
   job: (id: string, job: string) =>
     request<{ id: string; status: string; error: string | null }>(`${course(id)}/jobs/${job}`),
-  matchQuestion: (id: string, question_text: string, method = 'tfidf') =>
+  matchQuestion: (id: string, question_text: string, method = 'auto') =>
     request<QuestionResult>(
       `${course(id)}/questions/match`,
       json('POST', { question_text, method }),
     ),
-  importQuestions: (id: string, texts: string[]) =>
+  importQuestions: (id: string, texts: string[], method = 'auto') =>
     request<QuestionResult[]>(
       `${course(id)}/questions/batch`,
-      json('POST', { questions: texts.map((question_text) => ({ question_text })) }),
+      json('POST', { questions: texts.map((question_text) => ({ question_text, method })) }),
     ),
+  matcher: (id: string) => request<MatcherState>(`${course(id)}/matcher`),
+  questionBatches: (id: string) =>
+    request<QuestionBatchSummary[]>(`${course(id)}/question-batches`),
+  questionBatch: (id: string, batch: string) =>
+    request<QuestionBatch>(`${course(id)}/question-batches/${batch}`),
+  createQuestionBatch: (id: string, texts: string[], method: string, title: string) =>
+    request<QuestionBatch>(
+      `${course(id)}/question-batches`,
+      json('POST', { title, questions: texts.map((question_text) => ({ question_text, method })) }),
+    ),
+  createQuestionGroup: (id: string, batch: string, question_ids: string[], title: string) =>
+    request<QuestionBatch>(
+      `${course(id)}/question-batches/${batch}/groups`,
+      json('POST', { question_ids, title }),
+    ),
+  updateQuestionGroup: (
+    id: string,
+    group: string,
+    question_ids: string[],
+    title: string,
+    expected_version: number,
+    confirm = true,
+  ) =>
+    request<QuestionBatch>(
+      `${course(id)}/question-groups/${group}`,
+      json('PATCH', { question_ids, title, expected_version, confirm }),
+    ),
+  dissolveQuestionGroup: (id: string, group: string, version: number) =>
+    request<QuestionBatch>(`${course(id)}/question-groups/${group}?expected_version=${version}`, {
+      method: 'DELETE',
+    }),
+  mergeQuestionGroups: (id: string, groups: { id: string; version: number }[]) =>
+    request<QuestionBatch>(
+      `${course(id)}/question-groups/merge`,
+      json('POST', {
+        group_ids: groups.map((g) => g.id),
+        expected_versions: Object.fromEntries(groups.map((g) => [g.id, g.version])),
+      }),
+    ),
+  compareMatches: (id: string, question: string) =>
+    request<{ state: MatcherState; results: Ranking[]; persisted: boolean }>(
+      `${course(id)}/matches/compare`,
+      json('POST', { question }),
+    ),
+  experiment: (id: string) => request<ExperimentReport>(`${course(id)}/experiments`),
   questions: (id: string) => request<QuestionResult[]>(`${course(id)}/questions`),
+  nodeQuestions: (id: string, node: string) =>
+    request<NodeQuestions>(`${course(id)}/nodes/${node}/questions`),
+  evidenceComparisons: (id: string) =>
+    request<ComparisonSummary[]>(`${course(id)}/evidence/comparisons`),
+  evidenceComparison: (id: string, record: string) =>
+    request<RetrievalComparison>(`${course(id)}/evidence/comparisons/${record}`),
+  compareEvidence: (
+    id: string,
+    body: {
+      question_text: string
+      node_ids: string[]
+      evidence_budget: number
+      question_id?: string
+    },
+  ) => request<RetrievalComparison>(`${course(id)}/evidence/comparisons`, json('POST', body)),
+  assessEvidence: (id: string, record: string, body: RetrievalAssessment) =>
+    request<RetrievalComparison>(
+      `${course(id)}/evidence/comparisons/${record}/assessment`,
+      json('PATCH', body),
+    ),
+  evidenceExportUrl: (id: string, record: string) =>
+    `${base}${course(id)}/evidence/comparisons/${record}/export`,
   question: (id: string, question: string) =>
     request<QuestionResult>(`${course(id)}/questions/${question}`),
   confirmLinks: (id: string, question: string, node_ids: string[]) =>

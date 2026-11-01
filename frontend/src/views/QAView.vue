@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { useRoute } from 'vue-router'
+import { onBeforeRouteLeave, useRoute } from 'vue-router'
 import { api } from '../api'
 import AppIcon from '../components/AppIcon.vue'
+import MatchMethod from '../components/MatchMethod.vue'
 import SourceList from '../components/SourceList.vue'
 import SourceReader from '../components/SourceReader.vue'
 import type {
@@ -21,6 +22,8 @@ const health = ref<Health>()
 const history = ref<DraftSummary[]>([])
 const historyMenu = ref<HTMLDetailsElement>()
 const questionText = ref('')
+const matchMethod = ref('auto')
+const matchedMethod = ref('auto')
 const question = ref<QuestionResult>()
 const selectedNodes = ref<string[]>([])
 const citationIds = ref<string[]>([])
@@ -42,7 +45,10 @@ const states: Record<string, string> = {
   stale_review: '待重新审核',
 }
 const questionChanged = computed(
-  () => question.value && question.value.text !== questionText.value.trim(),
+  () =>
+    question.value &&
+    (question.value.text !== questionText.value.trim() ||
+      matchedMethod.value !== matchMethod.value),
 )
 const dirty = computed(
   () =>
@@ -57,6 +63,10 @@ const confirmedNodes = computed(
     [],
 )
 const generationReady = computed(() => health.value?.generation.available === true)
+onBeforeRouteLeave(() => {
+  if (dirty.value && (draft.value || answer.value.trim()))
+    return window.confirm('答疑有未保存的修改，仍要离开吗？')
+})
 
 function predictionScore(nodeId: string) {
   return question.value?.predictions.find((item) => item.node_id === nodeId)?.score
@@ -73,7 +83,12 @@ async function findEvidence() {
   message.value = ''
   try {
     if (!question.value || questionChanged.value) {
-      question.value = await api.matchQuestion(props.courseId, questionText.value)
+      question.value = await api.matchQuestion(
+        props.courseId,
+        questionText.value,
+        matchMethod.value,
+      )
+      matchedMethod.value = matchMethod.value
       draft.value = undefined
       answer.value = ''
       if (!selectedNodes.value.length)
@@ -273,6 +288,7 @@ onMounted(async () => {
             placeholder="输入学生提问，例如：注意力机制为什么使用 Softmax？"
           ></textarea>
         </div>
+        <MatchMethod v-model="matchMethod" :course-id="courseId" :disabled="!!busy" />
         <div class="question-actions">
           <label class="check-label">
             <input v-model="graphMode" type="checkbox" />
@@ -287,7 +303,12 @@ onMounted(async () => {
 
       <section v-if="question" class="question-nodes">
         <div class="section-heading">
-          <span class="section-label">关联知识点</span>
+          <span class="section-label"
+            >关联知识点 <small class="muted">{{ question.model_version }}</small></span
+          >
+          <RouterLink :to="{ path: '/graph', query: { question: question.id } }"
+            >图谱核查</RouterLink
+          >
           <button
             class="text-button"
             type="button"

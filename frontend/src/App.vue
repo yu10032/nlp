@@ -26,7 +26,7 @@ const generationLabel = computed(() => {
 })
 const matcherLabel = computed(() => {
   if (!health.value) return '匹配器待确认'
-  return health.value.matcher.trained_model_loaded ? '匹配：自训模型' : '匹配：词面基线'
+  return health.value.matcher.trained_model_loaded ? '本地匹配权重已加载' : '匹配：词面基线'
 })
 
 watch(courseId, (value) => {

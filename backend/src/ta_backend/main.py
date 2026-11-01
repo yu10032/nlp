@@ -14,6 +14,7 @@ from ta_backend.api import (
     graph,
     matching,
     questions,
+    retrieval_experiments,
     teaching,
 )
 from ta_backend.config import Settings
@@ -30,6 +31,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         engine = make_engine(settings.database_url)
         app.state.session_factory = sessionmaker(engine, expire_on_commit=False)
         app.state.settings = settings
+        app.state.local_matcher = None
+        if settings.matcher_run_dir is not None:
+            from course_matcher.inference import LocalMatcher
+
+            from ta_backend.config import PROJECT_ROOT
+
+            app.state.local_matcher = LocalMatcher(settings.matcher_run_dir, PROJECT_ROOT)
         app.state.generation_provider = make_provider(settings)
         with app.state.session_factory() as session:
             interrupted = session.scalars(
@@ -54,6 +62,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         graph.router,
         matching.router,
         questions.router,
+        retrieval_experiments.router,
         drafts.router,
         coverage.router,
         teaching.router,
@@ -90,7 +99,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         )
 
     @app.get("/api/v1/health", tags=["system"])
-    def health():
+    def health(request: Request):
         return {
             "status": "ok",
             "generation": {
@@ -99,7 +108,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 and bool(settings.llm_base_url and settings.llm_api_key and settings.llm_model),
                 "model": settings.llm_model if settings.generation_provider == "external" else None,
             },
-            "matcher": {"active": "name/tfidf baseline", "trained_model_loaded": False},
+            "matcher": {
+                "active": request.app.state.local_matcher.manifest["run_id"]
+                if request.app.state.local_matcher
+                else "name/tfidf baseline",
+                "trained_model_loaded": request.app.state.local_matcher is not None,
+            },
         }
 
     return app

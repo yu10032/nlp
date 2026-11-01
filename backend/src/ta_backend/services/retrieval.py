@@ -33,14 +33,13 @@ def tfidf_scores(query: str, texts: list[str]) -> list[float]:
     return scores
 
 
-def retrieve(
+def retrieval_inputs(
     session: Session,
     course_id: str,
     question: str,
     node_ids: list[str],
-    mode: str = "basic",
-    budget: int = 5,
 ) -> dict:
+    """一次读取候选原文、词面分数和可用的一跳路径，供两组对照共用。"""
     rows = session.execute(
         select(Chunk, Material)
         .join(Material)
@@ -52,9 +51,6 @@ def retrieve(
         .order_by(Chunk.position, Chunk.id)
     ).all()
     scores = tfidf_scores(question, [chunk.text for chunk, _ in rows])
-    selected = {
-        chunk.id: (score, "retrieval") for (chunk, _), score in zip(rows, scores) if score > 0
-    }
     direct_sources: dict[str, set[str]] = {node_id: set() for node_id in node_ids}
     for node_id, chunk_id in session.execute(
         select(NodeEvidence.node_id, NodeEvidence.chunk_id).where(
@@ -63,7 +59,8 @@ def retrieve(
         )
     ):
         direct_sources[node_id].add(chunk_id)
-    if mode == "graph_augmented" and node_ids:
+    paths: dict[str, list[dict]] = {}
+    if node_ids:
         confirmed = set(
             session.scalars(
                 select(KnowledgeNode.id).where(
@@ -103,16 +100,60 @@ def retrieve(
                 )
             )
         )
-        graph_chunks = set(
-            session.scalars(
-                select(NodeEvidence.chunk_id).where(
-                    NodeEvidence.course_id == course_id,
-                    NodeEvidence.node_id.in_(valid_nodes),
-                )
+        node_chunks = session.execute(
+            select(NodeEvidence.node_id, NodeEvidence.chunk_id).where(
+                NodeEvidence.course_id == course_id,
+                NodeEvidence.node_id.in_(valid_nodes),
             )
+        ).all()
+        names = dict(
+            session.execute(
+                select(KnowledgeNode.id, KnowledgeNode.name).where(
+                    KnowledgeNode.course_id == course_id, KnowledgeNode.id.in_(valid_nodes)
+                )
+            ).all()
         )
+        for node_id, chunk_id in node_chunks:
+            supports = []
+            if node_id in confirmed:
+                supports.append({"node_id": node_id, "node_name": names[node_id], "kind": "direct"})
+            for edge in edges:
+                via = (
+                    edge.source_id
+                    if edge.target_id == node_id
+                    else edge.target_id
+                    if edge.source_id == node_id
+                    else None
+                )
+                if via in confirmed and node_id in valid_nodes:
+                    supports.append(
+                        {
+                            "kind": "one_hop",
+                            "node_id": node_id,
+                            "node_name": names[node_id],
+                            "via_node_id": via,
+                            "via_node_name": names[via],
+                            "edge_id": edge.id,
+                            "edge_source_id": edge.source_id,
+                            "edge_target_id": edge.target_id,
+                            "relation": edge.relation,
+                            "edge_chunk_id": edge.chunk_id,
+                            "edge_version": edge.version,
+                        }
+                    )
+            paths.setdefault(chunk_id, []).extend(supports)
+    return {"rows": rows, "scores": scores, "direct_sources": direct_sources, "paths": paths}
+
+
+def retrieve_from_inputs(inputs: dict, node_ids: list[str], mode: str, budget: int) -> dict:
+    rows, scores = inputs["rows"], inputs["scores"]
+    paths, direct_sources = inputs["paths"], inputs["direct_sources"]
+    selected = {
+        chunk.id: (score, "retrieval") for (chunk, _), score in zip(rows, scores) if score > 0
+    }
+    if mode == "graph_augmented":
         for chunk, _ in rows:
-            if chunk.id in graph_chunks and chunk.id not in selected:
+            if paths.get(chunk.id) and chunk.id not in selected:
                 selected[chunk.id] = (0.0, "graph")
     ranked = sorted(
         (row for row in rows if row[0].id in selected),
@@ -124,7 +165,17 @@ def retrieve(
         balanced = []
         chosen = set()
         for node_id in node_ids:
-            candidate = next((row for row in ranked if row[0].id in direct_sources[node_id]), None)
+            candidate = next(
+                (
+                    row
+                    for row in ranked
+                    if any(
+                        p["kind"] == "direct" and p["node_id"] == node_id
+                        for p in paths.get(row[0].id, [])
+                    )
+                ),
+                None,
+            )
             if candidate and candidate[0].id not in chosen:
                 balanced.append(candidate)
                 chosen.add(candidate[0].id)
@@ -141,11 +192,13 @@ def retrieve(
             "text": chunk.text,
             "score": round(selected[chunk.id][0], 4),
             "origin": selected[chunk.id][1],
+            "graph_paths": paths.get(chunk.id, []) if mode == "graph_augmented" else [],
         }
         for chunk, material in ranked
     ]
     return {
         "retrieval_version": "tfidf-bigram-v1",
+        "graph_policy": "confirmed-one-hop-direct-first-v1",
         "mode": mode,
         "evidence": evidence,
         "missing_evidence": not evidence,
@@ -160,3 +213,16 @@ def retrieve(
             for node_id in node_ids
         ],
     }
+
+
+def retrieve(
+    session: Session,
+    course_id: str,
+    question: str,
+    node_ids: list[str],
+    mode: str = "basic",
+    budget: int = 5,
+) -> dict:
+    return retrieve_from_inputs(
+        retrieval_inputs(session, course_id, question, node_ids), node_ids, mode, budget
+    )

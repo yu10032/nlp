@@ -1,12 +1,16 @@
-# 路径相对 work；仅供试跑，正式数据与参数须另外确定。
+# 手写开发数据；不是正式金标准，不用于宣称模型已达到课程效果。
 encoder = "BAAI/bge-small-zh-v1.5"
-encoder_cache = "artifacts/encoders"
-train_file = "data/annotations/example-split/train.jsonl"
-validation_file = "data/annotations/example-split/validation.jsonl"
-output_dir = "artifacts/matcher/toy-run-001"
+encoder_path = "artifacts/encoders/bge-small-zh-v1.5"
+dataset_file = "data/annotations/development-nlp-v1.jsonl"
+nodes_file = "data/annotations/curriculum-nodes-v1.json"
+dataset_version = "development-nlp-v1"
+data_status = "development"
+run_id = "dev-nlp-001"
+output_dir = "artifacts/matcher/dev-nlp-001"
 hidden_dim = 32
 dropout = 0.1
-batch_size = 16
-epochs = 10
+batch_size = 64
+epochs = 80
 learning_rate = 0.001
+candidate_k = 5
 seed = 2026
