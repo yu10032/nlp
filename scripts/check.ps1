@@ -8,5 +8,7 @@ if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 & $pythonExe -m ruff format --check backend training
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+& npm.cmd --prefix frontend run test
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 & npm.cmd --prefix frontend run build
 exit $LASTEXITCODE
