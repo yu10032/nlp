@@ -12,6 +12,8 @@ def read_pairs(path: Path) -> list[dict]:
 
 def split_families(pairs: list[dict], seed: int = 2026) -> dict[str, list[dict]]:
     """按人工指定 family_id 分组，不用文本哈希代替问题家族标注。"""
+    if any(pair.get("split_role") == "heldout" for pair in pairs):
+        raise ValueError("独立评价问题不能重新划入训练或验证集")
     families = sorted({pair["family_id"] for pair in pairs})
     random.Random(seed).shuffle(families)
     train_end, validation_end = int(len(families) * 0.7), int(len(families) * 0.85)

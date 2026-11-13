@@ -11,3 +11,6 @@ dependencies = ["torch>=2.5,<3", "sentence-transformers>=3,<6"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+course_matcher = ["review_page.html"]

@@ -1,0 +1,13 @@
+{
+  "id": "",
+  "family_id": "",
+  "question": "",
+  "source": {
+    "kind": "classroom",
+    "course_id": "nlp-curriculum",
+    "session": "",
+    "record_id": "",
+    "deidentified": null,
+    "used_in_development": null
+  }
+}

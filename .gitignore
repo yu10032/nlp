@@ -91,3 +91,6 @@ Thumbs.db
 # 小规模手写开发问题与固定节点范围；不包含正式学生数据。
 !/data/annotations/development-nlp-v1.jsonl
 !/data/annotations/curriculum-nodes-v1.json
+
+# 明确标记 AI 来源的补充候选；没有人工标签，不是课堂实录。
+!/data/annotations/ai-supplement-nlp-v1.jsonl
