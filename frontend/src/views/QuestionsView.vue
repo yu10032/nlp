@@ -77,7 +77,7 @@ async function importBatch() {
     batchTitle.value = ''
     filter.value = ''
     if (result.questions[0]) open(result.questions[0])
-    message.value = `已导入 ${result.questions.length} 条提问，知识点与相似分组待核查`
+    message.value = `已导入 ${result.questions.length} 条提问`
   } catch (cause) {
     error.value = (cause as Error).message
   } finally {
@@ -148,34 +148,31 @@ onMounted(async () => {
 <template>
   <div class="page-heading">
     <h1>提问热点</h1>
-    <span class="page-meta"
-      >{{ batch ? '本批次' : '最近' }} {{ questions.length }} 条<template v-if="!batch">
-        · 最多显示 100 条</template
-      ></span
-    >
+    <span class="page-meta">{{ batch ? '本批次' : '最近' }} {{ questions.length }} 条</span>
   </div>
   <p v-if="error" class="error" role="alert">{{ error }}</p>
   <p v-if="message" class="success-message" role="status">{{ message }}</p>
   <form class="question-import sheet" @submit.prevent="importBatch">
-    <label class="sr-only" for="question-batch-title">批次名称</label
-    ><input
-      id="question-batch-title"
-      v-model="batchTitle"
-      maxlength="120"
-      placeholder="批次名称（可选，如：第三周语言模型课）"
-      :disabled="busy"
-    />
     <label class="editor-field"
-      >导入课堂提问<textarea
-        v-model="input"
-        rows="3"
-        placeholder="每行一条，最多 50 条。保留学生原始表述。"
-      ></textarea>
+      >导入提问<textarea v-model="input" rows="3" placeholder="一行一条提问…"></textarea>
     </label>
-    <MatchMethod v-model="matchMethod" :course-id="courseId" :disabled="busy" />
     <div class="question-actions">
-      <span class="muted">{{ lines.length }} / 50 条</span
-      ><button
+      <details class="inline-settings import-settings">
+        <summary>导入设置</summary>
+        <div class="settings-body">
+          <label class="field-group" for="question-batch-title"
+            >批次名称<input
+              id="question-batch-title"
+              v-model="batchTitle"
+              maxlength="120"
+              placeholder="可选"
+              :disabled="busy"
+          /></label>
+          <MatchMethod v-model="matchMethod" :course-id="courseId" :disabled="busy" />
+        </div>
+      </details>
+      <span class="input-count">{{ lines.length }} / 50</span>
+      <button
         class="primary"
         :disabled="busy || !lines.length || lines.length > 50 || lines.some((s) => s.length > 4000)"
       >
@@ -184,17 +181,16 @@ onMounted(async () => {
     </div>
   </form>
   <div class="question-batch-scope">
-    <label for="question-batch-scope">查看范围</label
+    <label for="question-batch-scope">提问批次</label
     ><select
       id="question-batch-scope"
       :value="batch?.id ?? ''"
       :disabled="busy"
       @change="loadScope(($event.target as HTMLSelectElement).value)"
     >
-      <option value="">最近 100 条（含历史提问）</option>
+      <option value="">最近提问</option>
       <option v-for="item in batches" :key="item.id" :value="item.id">
-        {{ item.title }} · {{ new Date(item.created_at).toLocaleString('zh-CN') }} ·
-        {{ item.question_count }} 问
+        {{ item.title }} · {{ item.question_count }} 问
       </option>
     </select>
   </div>
@@ -243,18 +239,20 @@ onMounted(async () => {
         }}</small>
       </button>
       <p v-if="!visibleQuestions.length" class="muted">
-        {{
-          questions.length
-            ? '当前知识点下没有提问。'
-            : '导入一组提问后，按知识点查看热点与核查关联。'
-        }}
+        {{ questions.length ? '当前知识点下没有提问。' : '还没有提问' }}
       </p>
     </div>
     <article v-if="selected" ref="inspector" class="question-inspector sheet">
       <h2>{{ selected.text }}</h2>
-      <p class="section-hint">
-        {{ selected.needs_review ? selected.model_version + ' · 建议待核查' : '教师已确认关联' }}
-      </p>
+      <div class="inspector-status">
+        <span class="tag" :class="selected.needs_review ? 'predicted' : 'confirmed'">{{
+          selected.needs_review ? '关联待确认' : '已确认关联'
+        }}</span>
+        <details class="context-details">
+          <summary>匹配详情</summary>
+          <p>{{ selected.model_version }} · 图谱 v{{ selected.graph_version }}</p>
+        </details>
+      </div>
       <div class="node-choices">
         <label
           v-for="node in nodes"
@@ -270,10 +268,10 @@ onMounted(async () => {
         <RouterLink :to="{ path: '/graph', query: { question: selected.id } }">图谱核查</RouterLink>
         <button class="secondary" type="button" :disabled="busy" @click="confirm">确认关联</button
         ><RouterLink class="primary" :to="{ path: '/qa', query: { question: selected.id } }"
-          >就此答疑 ↗</RouterLink
+          >就此答疑</RouterLink
         >
       </div>
-      <p v-if="!selectedNodes.length" class="section-hint">可确认无关联，保留原始提问。</p>
+      <p v-if="!selectedNodes.length" class="section-hint">当前无关联知识点</p>
       <div class="question-task-links">
         <template v-for="nodeId in selected.confirmed_node_ids" :key="nodeId"
           ><span>{{ nodes.find((n) => n.id === nodeId)?.name }}</span

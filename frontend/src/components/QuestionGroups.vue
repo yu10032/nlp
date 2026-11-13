@@ -122,9 +122,10 @@ function dissolve(group: QuestionGroup) {
         </button>
       </div>
     </div>
-    <p class="footnote">
-      TF-IDF 词面候选，需人工确认是否为同一诉求；分组保留全部原问题，热点仍按不同问题 ID 计数。
-    </p>
+    <details class="context-details group-explainer">
+      <summary>分组规则</summary>
+      <p>词面相似仅作为候选，需要人工确认是否为同一诉求。分组保留原问题，热点按不同问题计数。</p>
+    </details>
     <p v-if="error" class="error" role="alert">{{ error }}</p>
     <p v-if="message" class="success-message" role="status">{{ message }}</p>
     <form v-if="editing !== undefined" class="group-editor sheet" @submit.prevent="save">
@@ -203,7 +204,7 @@ function dissolve(group: QuestionGroup) {
       </article>
     </div>
     <p v-if="!batch.groups.length && editing === undefined" class="muted group-empty">
-      没有达到候选阈值的相似组，可手动选择同一诉求的问题建组。
+      暂无相似分组
     </p>
     <details v-if="ungrouped.length" class="ungrouped-questions">
       <summary>未归组 · {{ ungrouped.length }} 问</summary>

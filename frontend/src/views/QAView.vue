@@ -63,6 +63,27 @@ const confirmedNodes = computed(
     [],
 )
 const generationReady = computed(() => health.value?.generation.available === true)
+const selectedNodeNames = computed(() =>
+  confirmedNodes.value
+    .filter((node) => selectedNodes.value.includes(node.id))
+    .map((node) => node.name)
+    .join('、'),
+)
+const generationBlockReason = computed(() => {
+  if (!question.value) return '先查找依据'
+  if (questionChanged.value) return '重新查找依据后可生成'
+  if (!generationReady.value) return '生成服务未配置，可手动编写'
+  if (!evidence.value.length) return '没有可用依据，可手动编写'
+  return ''
+})
+const reviewBlockReason = computed(() => {
+  if (!question.value || (draft.value?.status === 'approved' && !dirty.value)) return ''
+  if (questionChanged.value) return '请重新查找依据'
+  if (!answer.value.trim()) return '填写答复后可审核'
+  if (!citationIds.value.length) return '至少引用一条课程依据'
+  if (!reviewer.value.trim()) return '请填写审核人'
+  return ''
+})
 onBeforeRouteLeave(() => {
   if (dirty.value && (draft.value || answer.value.trim()))
     return window.confirm('答疑有未保存的修改，仍要离开吗？')
@@ -249,15 +270,27 @@ onMounted(async () => {
   <div class="page-heading">
     <div class="heading-with-count">
       <h1>课程答疑</h1>
-      <span v-if="draft" class="page-meta">
-        {{ states[draft.status] }} · 第 {{ draft.version }} 版
-      </span>
+      <span
+        v-if="draft || answer.trim()"
+        class="document-state"
+        :class="{
+          'is-approved': draft?.status === 'approved' && !dirty,
+          'is-stale': draft?.status === 'stale_review' && !dirty,
+        }"
+        >{{ dirty ? '未保存' : states[draft!.status] }}</span
+      >
     </div>
     <div class="heading-actions">
       <details ref="historyMenu" class="history-menu">
-        <summary>已保存 {{ history.length }} 份 ▾</summary>
+        <summary>历史 · {{ history.length }}</summary>
         <div class="history-options sheet">
-          <button v-for="item in history" :key="item.id" type="button" @click="openDraft(item.id)">
+          <button
+            v-for="item in history"
+            :key="item.id"
+            type="button"
+            :aria-label="`${item.title}，${states[item.status]}`"
+            @click="openDraft(item.id)"
+          >
             <strong>{{ item.title }}</strong>
             <small>{{ states[item.status] }} · 第 {{ item.version }} 版</small>
           </button>
@@ -275,109 +308,126 @@ onMounted(async () => {
 
   <div class="qa-layout">
     <article class="qa-main sheet">
-      <form class="question-form" @submit.prevent="findEvidence">
-        <label class="section-label" for="teaching-question">教学问题</label>
+      <form class="question-form qa-question" @submit.prevent="findEvidence">
+        <h2>教学问题</h2>
+        <label class="sr-only" for="teaching-question">教学问题</label>
         <div class="question-input-wrap">
-          <span class="question-seal" aria-hidden="true">问</span>
           <textarea
             id="teaching-question"
             v-model="questionText"
-            rows="1"
+            rows="2"
             maxlength="4000"
             required
-            placeholder="输入学生提问，例如：注意力机制为什么使用 Softmax？"
+            placeholder="输入想讨论的问题…"
           ></textarea>
         </div>
-        <MatchMethod v-model="matchMethod" :course-id="courseId" :disabled="!!busy" />
         <div class="question-actions">
-          <label class="check-label">
-            <input v-model="graphMode" type="checkbox" />
-            补充已确认图谱邻域
-          </label>
-          <button class="primary" :disabled="!!busy || !questionText.trim()">
+          <details class="inline-settings">
+            <summary>检索设置</summary>
+            <div class="settings-body">
+              <MatchMethod v-model="matchMethod" :course-id="courseId" :disabled="!!busy" />
+              <label class="check-label">
+                <input v-model="graphMode" type="checkbox" :disabled="!!busy" />
+                图谱增强检索
+              </label>
+            </div>
+          </details>
+          <button
+            :class="!question || questionChanged ? 'primary' : 'secondary'"
+            :disabled="!!busy || !questionText.trim()"
+          >
             <AppIcon name="search" :size="15" />
             {{ busy === 'retrieval' ? '检索中…' : '查找依据' }}
           </button>
         </div>
       </form>
 
-      <section v-if="question" class="question-nodes">
-        <div class="section-heading">
-          <span class="section-label"
-            >关联知识点 <small class="muted">{{ question.model_version }}</small></span
-          >
-          <RouterLink :to="{ path: '/graph', query: { question: question.id } }"
-            >图谱核查</RouterLink
-          >
+      <details
+        v-if="question"
+        class="question-nodes knowledge-details task-section"
+        :open="question.needs_review"
+      >
+        <summary>
+          <span class="section-title">关联知识点</span>
+          <span class="selection-summary">{{ selectedNodeNames || '无关联' }}</span>
+          <span v-if="question.needs_review" class="tag predicted">待确认</span>
+        </summary>
+        <div class="knowledge-body">
+          <div class="node-choices">
+            <label
+              v-for="node in confirmedNodes"
+              :key="node.id"
+              class="node-tag"
+              :title="
+                predictionScore(node.id) === undefined
+                  ? undefined
+                  : `模型建议 ${predictionScore(node.id)!.toFixed(2)}`
+              "
+              :class="{
+                'is-selected': selectedNodes.includes(node.id),
+                'is-predicted': question.needs_review && predictionScore(node.id) !== undefined,
+              }"
+            >
+              <input
+                type="checkbox"
+                :checked="selectedNodes.includes(node.id)"
+                :disabled="!!busy"
+                @change="selectedNodes = toggle(selectedNodes, node.id)"
+              />
+              <span>{{ node.name }}</span>
+            </label>
+          </div>
+          <div class="knowledge-actions">
+            <details class="context-details">
+              <summary>匹配详情</summary>
+              <p>{{ question.model_version }} · 图谱 v{{ question.graph_version }}</p>
+              <p v-for="prediction in question.predictions" :key="prediction.node_id">
+                {{ graph?.nodes.find((node) => node.id === prediction.node_id)?.name }} ·
+                {{ prediction.score.toFixed(2) }}
+              </p>
+            </details>
+            <div class="section-actions">
+              <RouterLink :to="{ path: '/graph', query: { question: question.id } }">
+                图谱核查
+              </RouterLink>
+              <button
+                class="text-button"
+                type="button"
+                :disabled="!!busy || !!questionChanged"
+                @click="confirmNodes"
+              >
+                {{ question.needs_review ? '确认关联' : '更新关联' }}
+              </button>
+            </div>
+          </div>
+          <p v-if="!question.predictions.length && question.needs_review" class="section-hint">
+            未匹配到知识点，可手动选择或确认无关联。
+          </p>
+        </div>
+      </details>
+
+      <section
+        v-if="question"
+        class="answer-workspace task-section"
+        aria-labelledby="answer-heading"
+      >
+        <div class="task-heading">
+          <h2 id="answer-heading">答复</h2>
           <button
-            class="text-button"
+            :class="!answer.trim() && !questionChanged ? 'primary' : 'text-button'"
+            class="generate-answer"
             type="button"
-            :disabled="!!busy || !!questionChanged"
-            @click="confirmNodes"
+            :disabled="
+              !!busy || !question || !!questionChanged || !generationReady || !evidence.length
+            "
+            @click="saveDraft(true)"
           >
-            {{ question.needs_review ? '确认关联' : '更新关联' }}
+            {{ busy === 'generation' ? '正在生成…' : answer.trim() ? '重新生成' : '生成答复' }}
           </button>
         </div>
-        <div class="node-choices">
-          <label
-            v-for="node in confirmedNodes"
-            :key="node.id"
-            class="node-tag"
-            :class="{
-              'is-selected': selectedNodes.includes(node.id),
-              'is-predicted':
-                predictionScore(node.id) !== undefined && !selectedNodes.includes(node.id),
-            }"
-          >
-            <input
-              type="checkbox"
-              :checked="selectedNodes.includes(node.id)"
-              @change="selectedNodes = toggle(selectedNodes, node.id)"
-            />
-            <span>{{ node.name }}</span>
-            <small v-if="predictionScore(node.id) !== undefined">
-              {{ predictionScore(node.id)!.toFixed(2) }}
-            </small>
-          </label>
-        </div>
-        <p v-if="!question.predictions.length && question.needs_review" class="section-hint">
-          未找到匹配节点，可手动勾选或确认不关联。
+        <p v-if="generationBlockReason && !questionChanged" class="section-hint">
+          {{ generationBlockReason }}
         </p>
-        <p v-else class="section-hint">
-          实线为当前选中关联，附数字项为模型建议得分 · 图谱 v{{ question.graph_version }}
-        </p>
-      </section>
-
-      <hr class="sheet-rule" />
-
-      <section class="answer-workspace">
-        <div class="draft-head">
-          <span class="section-label">答复</span>
-          <span v-if="draft?.status === 'stale_review'" class="tag expired">
-            {{ states[draft.status] }} · v{{ draft.version }}
-          </span>
-          <span v-else-if="draft?.status === 'approved' && !dirty" class="tag approved-inline">
-            已审核 · v{{ draft.version }}
-          </span>
-          <span v-else class="tag draft">
-            {{ draft ? `${states[draft.status]} · v${draft.version}` : '草稿' }}
-          </span>
-
-          <div class="draft-head-right">
-            <button
-              class="secondary"
-              type="button"
-              :disabled="
-                !!busy || !question || !!questionChanged || !generationReady || !evidence.length
-              "
-              @click="saveDraft(true)"
-            >
-              {{ busy === 'generation' ? '正在生成…' : '生成答疑' }}
-            </button>
-            <span v-if="!generationReady" class="why-note"> 生成服务未配置，可对照依据手写 </span>
-          </div>
-        </div>
-
         <p v-if="questionChanged" class="notice">问题已修改，请重新查找依据。</p>
 
         <label class="sr-only" for="answer">答疑正文</label>
@@ -386,20 +436,12 @@ onMounted(async () => {
           v-model="answer"
           class="answer-editor"
           rows="8"
-          placeholder="在此整理答复正文。审核前请对照右侧旁注核查课程原文与引用。"
+          placeholder="写下答复，或根据课程依据生成…"
         ></textarea>
 
         <div class="draft-foot">
           <span>{{ answer.length }} 字</span>
-          <span v-if="draft && dirty" class="dirty-dot">● 有未保存修改</span>
-          <button
-            class="secondary"
-            type="button"
-            :disabled="!!busy || !question || !!questionChanged || !dirty"
-            @click="saveDraft()"
-          >
-            {{ busy === 'saving' ? '保存中…' : '保存草稿' }}
-          </button>
+          <span>{{ citationIds.length }} 条引用</span>
         </div>
       </section>
 
@@ -419,50 +461,61 @@ onMounted(async () => {
         </details>
       </details>
 
-      <section v-if="question" class="review-bar">
-        <div class="reviewer-field">
-          <label for="reviewer">审核人</label>
-          <input id="reviewer" v-model="reviewer" class="line-input" maxlength="80" />
-        </div>
+      <section v-if="question" class="review-bar" aria-label="保存与审核">
+        <div class="review-controls">
+          <div class="reviewer-field">
+            <label for="reviewer">审核人</label>
+            <input id="reviewer" v-model="reviewer" class="line-input" maxlength="80" />
+          </div>
 
-        <div v-if="draft?.status === 'approved' && !dirty" class="seal-line">
-          <span class="seal" aria-hidden="true">审</span>
-          <span>第 {{ draft.version }} 版已签核</span>
+          <div class="review-actions">
+            <a
+              v-if="draft?.status === 'approved' && !dirty"
+              class="primary"
+              :href="api.exportUrl(courseId, draft.id)"
+            >
+              <AppIcon name="download" :size="14" />导出
+            </a>
+            <details v-if="draft" class="review-more">
+              <summary>更多</summary>
+              <button
+                class="text-button"
+                type="button"
+                :disabled="!!busy || !!questionChanged"
+                @click="review('rejected')"
+              >
+                退回修改
+              </button>
+            </details>
+            <button
+              :class="dirty && answer.trim() ? 'primary' : 'secondary'"
+              type="button"
+              :disabled="!!busy || !!questionChanged || !dirty"
+              @click="saveDraft()"
+            >
+              {{ busy === 'saving' ? '保存中…' : '保存草稿' }}
+            </button>
+            <button
+              v-if="draft?.status !== 'approved' || dirty"
+              class="review-btn"
+              type="button"
+              :disabled="
+                !!busy ||
+                !answer.trim() ||
+                !citationIds.length ||
+                !reviewer.trim() ||
+                !!questionChanged ||
+                (draft?.status === 'approved' && !dirty)
+              "
+              @click="review('approved')"
+            >
+              {{ busy === 'review' ? '审核中…' : '审核通过' }}
+            </button>
+          </div>
         </div>
-
-        <div class="review-actions">
-          <a
-            v-if="draft?.status === 'approved' && !dirty"
-            class="text-button"
-            :href="api.exportUrl(courseId, draft.id)"
-          >
-            <AppIcon name="download" :size="14" />导出
-          </a>
-          <button
-            v-if="draft"
-            class="text-button"
-            type="button"
-            :disabled="!!busy || !!questionChanged"
-            @click="review('rejected')"
-          >
-            退回修改
-          </button>
-          <button
-            class="review-btn"
-            type="button"
-            :disabled="
-              !!busy ||
-              !answer.trim() ||
-              !citationIds.length ||
-              !reviewer.trim() ||
-              !!questionChanged ||
-              (draft?.status === 'approved' && !dirty)
-            "
-            @click="review('approved')"
-          >
-            {{ busy === 'review' ? '审核中…' : '审核通过' }}
-          </button>
-        </div>
+        <p v-if="reviewBlockReason && !questionChanged" class="review-requirement" role="status">
+          {{ reviewBlockReason }}
+        </p>
       </section>
     </article>
 
@@ -476,7 +529,9 @@ onMounted(async () => {
       <template v-else>
         <div class="margin-head">
           <h2>课程依据</h2>
-          <span>{{ evidence.length }} 个片段</span>
+          <span v-if="evidence.length"
+            >{{ citationIds.length }} / {{ evidence.length }} 已引用</span
+          >
         </div>
         <SourceList
           v-if="evidence.length"
@@ -488,13 +543,8 @@ onMounted(async () => {
           @preview="(source) => (sourcePreview = source)"
         />
         <div v-else class="evidence-empty">
-          <h3>{{ searched ? '未找到课程依据' : '课程依据旁注' }}</h3>
           <p>
-            {{
-              searched
-                ? '当前资料中未检索到匹配段落，请补充课程资料或调整问题表述。'
-                : '输入教学问题并查找依据后，相关讲义原文将按编号列于此处。'
-            }}
+            {{ searched ? '未找到依据，试试调整问题或补充资料。' : '查找后在这里核对课程原文。' }}
           </p>
           <RouterLink v-if="searched" to="/materials">前往补充资料</RouterLink>
         </div>

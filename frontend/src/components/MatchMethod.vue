@@ -36,6 +36,9 @@ onMounted(async () => {
       </select></label
     >
     <span v-if="error" class="error">{{ error }}</span>
-    <span v-else-if="state?.scope_reason" class="muted">{{ state.scope_reason }}</span>
+    <details v-else-if="state?.scope_reason" class="method-scope context-details">
+      <summary>适用范围</summary>
+      <p class="muted">{{ state.scope_reason }}</p>
+    </details>
   </div>
 </template>

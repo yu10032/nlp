@@ -18,7 +18,17 @@ npm.cmd --prefix frontend ci
 .\.venv\Scripts\python.exe -m ta_backend.seed
 ```
 
-两个终端分别执行：
+日常使用双击仓库根目录的 `start.cmd`：它会在后台启动前后端，等待两边就绪后才打开工作台；重复启动会复用已就绪的服务。关闭浏览器后服务仍运行，双击 `stop.cmd` 停止由此入口启动的服务。启动失败时查看 `logs/` 下对应的输出和错误日志。
+
+也可在终端执行（`-NoBrowser` 用于只启动服务，随后在内置浏览器打开地址）：
+
+```powershell
+.\scripts\start.ps1
+# .\scripts\start.ps1 -NoBrowser
+# .\scripts\start.ps1 -Stop
+```
+
+需要观察开发日志时，仍可在两个终端分别执行：
 
 ```powershell
 .\scripts\start-backend.ps1
@@ -28,7 +38,7 @@ npm.cmd --prefix frontend ci
 .\scripts\start-frontend.ps1
 ```
 
-打开 [工作台](http://127.0.0.1:5173)，[交互式接口文档](http://127.0.0.1:8000/docs) 由后端提供。终端按 `Ctrl+C` 停止；下次使用只需启动脚本。更新代码后同步锁定依赖并执行迁移，当前数据库版本为 `0004`。
+工作台地址为 [http://127.0.0.1:5173](http://127.0.0.1:5173)，端口是 `5173`；[交互式接口文档](http://127.0.0.1:8000/docs) 由后端提供。手动启动的终端按 `Ctrl+C` 停止。重启电脑后需要再次启动服务，单独打开网页不会启动本地程序。更新代码后同步锁定依赖并执行迁移，当前数据库版本为 `0004`。
 
 ## 配置
 

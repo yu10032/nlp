@@ -16,8 +16,13 @@ const adding = ref(false)
 const saving = ref(false)
 const title = ref('')
 const menuOpen = ref(false)
+const systemMenu = ref<HTMLDetailsElement>()
 
-const course = computed(() => courses.value.find((item) => item.id === courseId.value))
+function closeSystemMenu(event: MouseEvent) {
+  if (event.target instanceof Node && !systemMenu.value?.contains(event.target) && systemMenu.value)
+    systemMenu.value.open = false
+}
+
 const generationLabel = computed(() => {
   if (!health.value) return '读取服务状态…'
   if (health.value.generation.available)
@@ -79,11 +84,15 @@ function startCourse() {
 }
 </script>
 <template>
-  <div class="workspace">
+  <div
+    class="workspace"
+    @click="closeSystemMenu"
+    @keydown.esc="systemMenu && (systemMenu.open = false)"
+  >
     <header class="topbar">
       <RouterLink class="brand" to="/graph">
         <span class="brand-seal" aria-hidden="true">助</span>
-        <span>课程智能助教</span>
+        <span>课程助教</span>
       </RouterLink>
 
       <div class="course-switch">
@@ -94,7 +103,6 @@ function startCourse() {
             {{ item.title }}
           </option>
         </select>
-        <span v-if="course?.id === 'demo-nlp'" class="context-note">手工示例</span>
         <button
           class="icon-button"
           type="button"
@@ -123,10 +131,18 @@ function startCourse() {
         </div>
       </nav>
 
-      <div class="sys-status sys-desktop" aria-label="系统能力状态">
-        <span :class="{ 'is-ok': health?.generation.available }">{{ generationLabel }}</span>
-        <span :class="{ 'is-ok': !!health }">{{ matcherLabel }}</span>
-      </div>
+      <details ref="systemMenu" class="system-menu sys-desktop">
+        <summary>
+          <span class="system-state-dot" :class="{ 'is-ok': !!health }" aria-hidden="true"></span>
+          服务状态
+        </summary>
+        <div class="system-popover sheet" aria-label="系统能力状态">
+          <div class="sys-status system-details">
+            <span :class="{ 'is-ok': health?.generation.available }">{{ generationLabel }}</span>
+            <span :class="{ 'is-ok': !!health }">{{ matcherLabel }}</span>
+          </div>
+        </div>
+      </details>
 
       <button
         class="mobile-menu icon-button"
@@ -158,13 +174,12 @@ function startCourse() {
     <main class="main">
       <div class="page">
         <p v-if="error" class="error" role="alert">{{ error }}</p>
-        <div v-if="loading" class="loading-block" role="status">正在展卷读取课程…</div>
+        <div v-if="loading" class="loading-block" role="status">正在读取课程…</div>
         <RouterView v-else-if="courseId" v-slot="{ Component }">
           <component :is="Component" :key="`${courseId}:${route.path}`" :course-id="courseId" />
         </RouterView>
         <div v-else-if="!error" class="empty-state sheet">
           <h2>创建第一门课程</h2>
-          <p class="muted">建立独立的课程讲义空间，隔离资料、图谱与审核记录。</p>
           <button class="primary" @click="startCourse">新建课程</button>
         </div>
       </div>

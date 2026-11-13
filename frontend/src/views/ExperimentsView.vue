@@ -59,13 +59,10 @@ onMounted(async () => {
 <template>
   <div class="page-heading">
     <div class="heading-with-count">
-      <h1>实验核查</h1>
-      <span v-if="tab === 'matching' && report?.run" class="page-meta">{{
-        report.run.run_id
-      }}</span>
+      <h1>实验对照</h1>
     </div>
     <span v-if="tab === 'matching' && report?.run" class="page-meta"
-      >自动策略：{{ labels[report.state.active_method] }} · 按验证集选择</span
+      >自动：{{ labels[report.state.active_method] }}</span
     >
   </div>
   <div class="experiment-tabs" role="tablist" aria-label="实验类型">
@@ -76,7 +73,7 @@ onMounted(async () => {
       aria-controls="matching-panel"
       @click="tab = 'matching'"
     >
-      模型匹配
+      模型对照
     </button>
     <button
       id="retrieval-tab"
@@ -85,7 +82,7 @@ onMounted(async () => {
       aria-controls="retrieval-panel"
       @click="openRetrieval"
     >
-      证据检索
+      检索对照
     </button>
   </div>
   <div
@@ -104,15 +101,14 @@ onMounted(async () => {
   >
     <p v-if="error" class="error" role="alert">{{ error }}</p>
     <p v-if="report?.run?.data_status === 'development'" class="experiment-notice">
-      开发数据
-      {{ count }} 条，标签由开发阶段手工拟定，尚未独立复核。下列结果用于检查训练和接入流程。
+      开发实验 · {{ count }} 题 · 标签待独立复核
     </p>
     <p v-else-if="report?.state.scope_reason" class="experiment-notice">
-      {{ report.state.scope_reason }}。可继续比较当前课程的词面基线。
+      {{ report.state.scope_reason }}
     </p>
     <section class="experiment-input sheet">
       <form class="experiment-form" @submit.prevent="run">
-        <label class="section-label" for="experiment-question">同一个问题，比较各模型</label
+        <label class="section-label" for="experiment-question">测试问题</label
         ><textarea
           id="experiment-question"
           v-model="question"
@@ -122,8 +118,7 @@ onMounted(async () => {
           class="experiment-textarea"
         ></textarea>
         <div class="experiment-actions">
-          <span class="muted">实时本地推理；实验输入不写入课堂提问</span
-          ><button class="primary" :disabled="loading || !question.trim()">
+          <button class="primary" :disabled="loading || !question.trim()">
             {{ loading ? '匹配中…' : '运行对照' }}
           </button>
         </div>
@@ -132,7 +127,6 @@ onMounted(async () => {
         <section v-for="result in results" :key="result.method" class="ranking-result">
           <div class="section-heading">
             <h2>{{ labels[result.method] }}</h2>
-            <small class="muted">阈值 {{ result.threshold.toFixed(2) }}</small>
           </div>
           <p v-if="!result.matches.length" class="muted">没有达到阈值的关联</p>
           <div v-for="match in result.matches" :key="match.node_id" class="match-row">
@@ -141,42 +135,50 @@ onMounted(async () => {
             }}</RouterLink
             ><span>{{ match.score.toFixed(3) }}</span>
           </div>
-          <p class="ranking-version">{{ result.version }}</p>
+          <details class="context-details ranking-details">
+            <summary>模型详情</summary>
+            <p>{{ result.version }} · 阈值 {{ result.threshold.toFixed(2) }}</p>
+          </details>
         </section>
       </div>
     </section>
     <template v-if="report?.run && report.evaluation">
-      <div class="experiment-record">
-        <section class="training-sheet sheet">
-          <LossChart
-            v-if="report.history"
-            :history="report.history"
-            :selected="report.run.selected_epoch"
-          />
-        </section>
-        <aside class="run-record">
-          <h2>实验范围</h2>
-          <dl>
-            <dt>编码器</dt>
-            <dd>{{ report.run.encoder_id }} · 冻结</dd>
-            <dt>数据版本</dt>
-            <dd>{{ report.run.dataset_version }}</dd>
-            <dt>课程图谱</dt>
-            <dd>第 {{ report.run.graph_version }} 版</dd>
-            <dt>划分</dt>
-            <dd v-for="(split, key) in report.split" :key="key">
-              {{ key }}：{{ split.questions }} 题 / {{ split.families.length }} 个家族
-            </dd>
-            <dt>候选召回</dt>
-            <dd>
-              Recall@{{ report.run.candidate_k }} =
-              {{ percent(report.evaluation.candidate_recall.ratio) }}
-            </dd>
-            <dt>随机种子</dt>
-            <dd>{{ report.run.seed }}</dd>
-          </dl>
-        </aside>
-      </div>
+      <details class="experiment-context">
+        <summary>训练记录与实验设置</summary>
+        <div class="experiment-record">
+          <section class="training-sheet sheet">
+            <LossChart
+              v-if="report.history"
+              :history="report.history"
+              :selected="report.run.selected_epoch"
+            />
+          </section>
+          <aside class="run-record">
+            <h2>实验范围</h2>
+            <dl>
+              <dt>实验版本</dt>
+              <dd>{{ report.run.run_id }}</dd>
+              <dt>编码器</dt>
+              <dd>{{ report.run.encoder_id }} · 冻结</dd>
+              <dt>数据版本</dt>
+              <dd>{{ report.run.dataset_version }}</dd>
+              <dt>课程图谱</dt>
+              <dd>第 {{ report.run.graph_version }} 版</dd>
+              <dt>划分</dt>
+              <dd v-for="(split, key) in report.split" :key="key">
+                {{ key }}：{{ split.questions }} 题 / {{ split.families.length }} 个家族
+              </dd>
+              <dt>候选召回</dt>
+              <dd>
+                Recall@{{ report.run.candidate_k }} =
+                {{ percent(report.evaluation.candidate_recall.ratio) }}
+              </dd>
+              <dt>随机种子</dt>
+              <dd>{{ report.run.seed }}</dd>
+            </dl>
+          </aside>
+        </div>
+      </details>
       <div class="table-wrap sheet model-metrics">
         <table class="ledger-table">
           <caption>
@@ -203,16 +205,19 @@ onMounted(async () => {
             </tr>
           </tbody>
         </table>
-        <p class="footnote">
-          每种方法最多返回 3 个知识点；MLP 在同一个句向量 Top
-          {{ report.run.candidate_k }}
-          候选集内重排。阈值由验证集确定。无关联误挂率仅统计测试集中无关联问题，数量为
-          {{ report.evaluation.methods.mlp?.no_match_questions }} 条。
-        </p>
+        <details class="context-details metric-notes">
+          <summary>指标说明</summary>
+          <p>
+            每种方法最多返回 3 个知识点；MLP 在同一个句向量 Top
+            {{ report.run.candidate_k }}
+            候选集内重排。阈值由验证集确定。无关联误挂率仅统计测试集中无关联问题，数量为
+            {{ report.evaluation.methods.mlp?.no_match_questions }} 条。
+          </p>
+        </details>
       </div>
-      <section class="error-cases sheet">
+      <details class="error-cases sheet">
+        <summary>错误案例 · {{ errors.length }}</summary>
         <div class="section-heading">
-          <h2>错误案例</h2>
           <label
             >方法<select v-model="errorMethod" aria-label="错误案例方法">
               <option v-for="(label, key) in labels" :key="key" :value="key">{{ label }}</option>
@@ -228,7 +233,7 @@ onMounted(async () => {
         <p v-if="errors.length > 12" class="footnote">
           展示前 12 / {{ errors.length }} 条，完整记录保存在该实验目录的 evaluation.json。
         </p>
-      </section>
+      </details>
     </template>
   </div>
 </template>

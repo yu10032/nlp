@@ -1,5 +1,13 @@
 <script setup lang="ts">
+import { ref } from 'vue'
 import type { RetrievalEvidence } from '../types'
+
+const expanded = ref<string[]>([])
+function toggleExcerpt(id: string) {
+  expanded.value = expanded.value.includes(id)
+    ? expanded.value.filter((value) => value !== id)
+    : [...expanded.value, id]
+}
 defineProps<{
   evidence: RetrievalEvidence[]
   selected?: string[]
@@ -25,16 +33,29 @@ defineEmits<{ toggle: [id: string]; preview: [source: RetrievalEvidence] }>()
         <div class="note-body">
           <div class="note-src">
             <strong>{{ source.material_title }}</strong>
-            <span>
-              <template v-if="source.section_path?.length"
-                >§{{ source.section_path.join(' / ') }} ·
-              </template>
-              {{ source.locator }} · v{{ source.material_version
-              }}<template v-if="source.active === false"> · 已失效</template>
-            </span>
+            <span
+              :title="[...(source.section_path ?? []), `v${source.material_version}`].join(' / ')"
+              >{{ source.locator }}</span
+            >
+            <span v-if="source.active === false" class="source-invalid">已失效</span>
           </div>
-          <blockquote class="note-quote">{{ source.text }}</blockquote>
+          <blockquote
+            class="note-quote"
+            :class="{ 'is-collapsed': source.text.length > 140 && !expanded.includes(source.id) }"
+          >
+            {{ source.text }}
+          </blockquote>
           <div class="note-ops">
+            <button
+              v-if="source.text.length > 140"
+              class="text-button excerpt-toggle"
+              type="button"
+              :aria-label="`${expanded.includes(source.id) ? '收起' : '展开'}第${index + 1}条引文`"
+              :aria-expanded="expanded.includes(source.id)"
+              @click="toggleExcerpt(source.id)"
+            >
+              {{ expanded.includes(source.id) ? '收起' : '展开' }}
+            </button>
             <button
               v-if="inlinePreview"
               type="button"
@@ -60,7 +81,7 @@ defineEmits<{ toggle: [id: string]; preview: [source: RetrievalEvidence] }>()
                 :aria-label="`引用${source.material_title} ${source.locator}`"
                 @change="$emit('toggle', source.id)"
               />
-              <span>{{ selected?.includes(source.id) ? '已引用' : '重新引用' }}</span>
+              <span>{{ selected?.includes(source.id) ? '已引用' : '引用' }}</span>
             </label>
           </div>
         </div>

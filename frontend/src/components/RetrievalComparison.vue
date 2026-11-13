@@ -179,7 +179,7 @@ onMounted(async () => {
   <p v-if="message" class="status-message" role="status">{{ message }}</p>
   <section class="experiment-input sheet">
     <form class="retrieval-form" @submit.prevent="run">
-      <label class="section-label" for="retrieval-question">同一个问题，核查两组课程依据</label>
+      <label class="section-label" for="retrieval-question">测试问题</label>
       <textarea
         id="retrieval-question"
         v-model="text"
@@ -187,16 +187,31 @@ onMounted(async () => {
         maxlength="4000"
         required
         :disabled="busy"
-        placeholder="输入问题，先选定图谱增强的目标知识点…"
+        placeholder="输入想比较的问题…"
       ></textarea>
       <div class="experiment-actions">
-        <MatchMethod v-model="method" :course-id="courseId" :disabled="busy" />
+        <details class="inline-settings">
+          <summary>检索设置</summary>
+          <div class="settings-body">
+            <MatchMethod v-model="method" :course-id="courseId" :disabled="busy" />
+            <label class="budget-control"
+              >每组依据<input
+                v-model.number="budget"
+                aria-label="每组证据预算"
+                type="number"
+                min="1"
+                max="10"
+                required
+              />段</label
+            >
+          </div>
+        </details>
         <button type="button" class="secondary" :disabled="busy || !text.trim()" @click="suggest">
           建议知识点
         </button>
       </div>
       <fieldset class="retrieval-targets">
-        <legend>图谱增强的目标</legend>
+        <legend>关联知识点</legend>
         <div class="node-choices">
           <label v-for="node in options" :key="node.id" class="check-label"
             ><input v-model="selected" type="checkbox" :value="node.id" :disabled="busy" />{{
@@ -204,23 +219,11 @@ onMounted(async () => {
             }}</label
           >
         </div>
-        <p v-if="!selected.length" class="footnote">未选目标时，两组使用相同的普通检索。</p>
+        <p v-if="!selected.length" class="section-hint">未选知识点，两组将使用相同检索。</p>
       </fieldset>
       <div class="experiment-actions">
-        <label class="budget-control"
-          >每组最多
-          <input
-            v-model.number="budget"
-            aria-label="每组证据预算"
-            type="number"
-            min="1"
-            max="10"
-            required
-          />
-          段</label
-        >
         <button class="primary" :disabled="busy || !text.trim() || selected.length > 10">
-          {{ busy ? '处理中…' : '运行并保存对照' }}
+          {{ busy ? '处理中…' : '运行对照' }}
         </button>
       </div>
     </form>
@@ -238,28 +241,27 @@ onMounted(async () => {
   <section v-if="record" class="comparison-record" aria-label="检索对照结果">
     <header class="comparison-head">
       <h2>{{ record.question_text }}</h2>
-      <a :href="api.evidenceExportUrl(courseId, record.id)" download>导出记录 JSON</a>
-      <p class="muted">
-        图谱 v{{ record.snapshot.graph_version }} · 每组最多
-        {{ record.snapshot.evidence_budget }} 段 · {{ record.snapshot.basic.retrieval_version }}
-      </p>
-      <p class="muted">目标：{{ record.snapshot.nodes.map((n) => n.name).join('、') || '无' }}</p>
-      <details class="snapshot-materials">
-        <summary>{{ record.snapshot.materials.length }} 份资料快照</summary>
-        <p v-for="m in record.snapshot.materials" :key="m.id">{{ m.title }} · v{{ m.version }}</p>
+      <a :href="api.evidenceExportUrl(courseId, record.id)" download>导出记录</a>
+      <details class="context-details comparison-context">
+        <summary>对照信息</summary>
+        <p>
+          图谱 v{{ record.snapshot.graph_version }} · 每组最多
+          {{ record.snapshot.evidence_budget }} 段 · {{ record.snapshot.basic.retrieval_version }}
+        </p>
+        <p>知识点：{{ record.snapshot.nodes.map((n) => n.name).join('、') || '无' }}</p>
+        <div class="snapshot-materials">
+          <p v-for="m in record.snapshot.materials" :key="m.id">{{ m.title }} · v{{ m.version }}</p>
+        </div>
+        <p>
+          增强检索优先保留目标知识点的直接依据，再补充已确认的一跳关系；数量变化不代表质量改善。
+        </p>
       </details>
-      <p v-if="record.is_stale" class="experiment-notice">
-        课程图谱或资料已更新。以下为当时的证据快照，重跑会建立新记录。
-      </p>
+      <p v-if="record.is_stale" class="experiment-notice">资料或图谱已更新，当前显示历史快照。</p>
     </header>
     <p class="comparison-diff">
       共有 {{ record.snapshot.difference.shared.length }} 段 · 增强补入
       {{ record.snapshot.difference.added.length }} 段 · 移出
       {{ record.snapshot.difference.removed.length }} 段
-    </p>
-    <p class="footnote">
-      增强组先为每个目标保留一份直接依据，再按词面相关性及已确认的一跳关系补齐；片段按 ID
-      去重。数量差异不代表质量改善，请核查补入与移出的证据。
     </p>
     <div class="evidence-columns">
       <section
@@ -278,15 +280,19 @@ onMounted(async () => {
           :key="source.id"
           class="comparison-source"
         >
-          <div class="source-rank">
-            <span>〔{{ index + 1 }}〕 {{ difference(source.id) }}</span
-            ><small class="muted">词面分数 {{ source.score?.toFixed(3) }}</small>
+          <div class="source-rank" :title="`词面分数 ${source.score?.toFixed(3)}`">
+            <span
+              >〔{{ index + 1 }}〕<template v-if="difference(source.id) !== '两组共有'">
+                {{ difference(source.id) }}</template
+              ></span
+            >
           </div>
           <blockquote>{{ source.text }}</blockquote>
           <p class="source-locator">
             {{ source.material_title }} · v{{ source.material_version }} · {{ source.locator }}
           </p>
-          <div v-if="source.graph_paths?.length" class="graph-paths">
+          <details v-if="source.graph_paths?.length" class="context-details graph-paths">
+            <summary>增强路径</summary>
             <p v-for="(path, i) in source.graph_paths" :key="i">
               <template v-if="path.kind === 'direct'">{{ path.node_name }} → 直接依据</template
               ><template v-else
@@ -296,10 +302,7 @@ onMounted(async () => {
                 课程依据</template
               >
             </p>
-          </div>
-          <p v-else-if="difference(source.id) === '增强补入'" class="footnote">
-            目标依据优先后，在固定预算内顺延补入
-          </p>
+          </details>
           <div class="source-assessment">
             <button class="text-button" type="button" @click="preview = source">查看原文</button
             ><label
@@ -335,7 +338,7 @@ onMounted(async () => {
             maxlength="80"
             :disabled="busy" /></label
         ><label
-          >增强后的整体效果<select
+          >整体效果<select
             v-model="assessment.outcome"
             aria-label="增强后的整体效果"
             :disabled="busy"
@@ -348,13 +351,13 @@ onMounted(async () => {
           </select></label
         >
       </div>
-      <label for="comparison-note">改善或噪声案例</label
+      <label for="comparison-note">评价备注</label
       ><textarea
         id="comparison-note"
         v-model="assessment.note"
         rows="3"
         maxlength="4000"
-        placeholder="记录哪段补充了必要依据，或哪条关系带入了无关材料…"
+        placeholder="哪些依据有帮助，哪些带来了噪声？"
         :disabled="busy"
       ></textarea>
       <div class="experiment-actions">

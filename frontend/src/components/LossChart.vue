@@ -33,6 +33,6 @@ function path(key: 'train_loss' | 'validation_loss') {
       <path :d="path('validation_loss')" class="validation-line" />
       <line :x1="x(selected)" y1="20" :x2="x(selected)" y2="188" class="selected-epoch" />
     </svg>
-    <p class="section-hint">仅更新 MLP 参数；按最低验证损失保存第 {{ selected }} 轮权重。</p>
+    <p class="section-hint">最佳权重 · 第 {{ selected }} 轮</p>
   </figure>
 </template>
